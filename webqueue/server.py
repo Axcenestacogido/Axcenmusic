@@ -937,7 +937,7 @@ def render_page(flash='', flash_ok=True):
       t.classList.toggle('active', TAB_NAMES[i] === name));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
-    if (name === 'library') loadLibrary();
+    if (name === 'library' && !libLoaded) loadLibrary();
   }}
 
   // ── SSE ───────────────────────────────────────────────────────────
@@ -1070,19 +1070,25 @@ def render_page(flash='', flash_ok=True):
   renderNightQueue();
 
   // ── Biblioteca agrupada ───────────────────────────────────────────
+  let libLoaded = false;
   async function loadLibrary() {{
-    document.getElementById('lib-loading').textContent = 'Cargando…';
-    document.getElementById('lib-loading').style.display = '';
-    document.getElementById('lib-list').innerHTML = '';
+    const loadEl = document.getElementById('lib-loading');
+    const listEl = document.getElementById('lib-list');
+    loadEl.textContent = 'Cargando…';
+    loadEl.style.display = '';
+    listEl.style.opacity = '0.4';
     let songs;
     try {{
       const r = await fetch('/api/library');
       songs = await r.json();
     }} catch(e) {{
-      document.getElementById('lib-loading').textContent = 'Error al cargar la biblioteca.';
+      loadEl.textContent = 'Error al cargar la biblioteca.';
+      listEl.style.opacity = '';
       return;
     }}
-    document.getElementById('lib-loading').style.display = 'none';
+    loadEl.style.display = 'none';
+    listEl.style.opacity = '';
+    libLoaded = true;
     if (!songs.length) {{
       document.getElementById('lib-list').innerHTML = '<p class="muted">Sin canciones todavía.</p>';
       return;
@@ -1231,7 +1237,7 @@ def render_page(flash='', flash_ok=True):
     try {{
       const r   = await fetch('/edit', {{method:'POST', body: fd}});
       const res = await r.json();
-      if (res.ok) {{ closeModal(); loadLibrary(); }}
+      if (res.ok) {{ closeModal(); libLoaded = false; loadLibrary(); }}
       else {{ errEl.textContent = res.error || 'Error desconocido'; errEl.style.display='block'; }}
     }} catch(e) {{
       errEl.textContent = 'Error de red'; errEl.style.display = 'block';
@@ -1246,7 +1252,7 @@ def render_page(flash='', flash_ok=True):
     try {{
       const r   = await fetch('/delete', {{method:'POST', body: fd}});
       const res = await r.json();
-      if (res.ok) loadLibrary();
+      if (res.ok) {{ libLoaded = false; loadLibrary(); }}
       else alert('Error: ' + (res.error || 'desconocido'));
     }} catch(e) {{
       alert('Error de red');
@@ -1336,6 +1342,9 @@ def render_page(flash='', flash_ok=True):
 
     xhr.send(fd);
   }}
+
+  // Cargar biblioteca al abrir la página (pestaña Biblioteca siempre lista)
+  loadLibrary();
   </script>
 </body>
 </html>'''
