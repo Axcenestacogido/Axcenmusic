@@ -110,48 +110,166 @@ def download_worker():
 threading.Thread(target=download_worker, daemon=True).start()
 
 
-# ── Parser multipart/form-data ────────────────────────────────────────────────
-def _parse_multipart(content_type, body):
-    """Devuelve (fields: dict, files: list[dict])."""
+# ── Streaming multipart/form-data → disco ────────────────────────────────────
+def _stream_upload(rfile, content_type, total_length, music_dir):
+    """
+    Parsea multipart/form-data escribiendo cada archivo directamente a disco.
+    Nunca retiene más de ~128 KB en RAM independientemente del tamaño total.
+    Devuelve (ok_files: list[str], last_dest: str, errors: list[str])
+    """
     m = re.search(r'boundary=([^\s;]+)', content_type)
     if not m:
-        return {}, []
-    boundary = m.group(1).strip('"').encode()
-    delimiter = b'--' + boundary
+        return [], music_dir, ['Content-Type sin boundary']
 
-    fields = {}
-    files  = []
+    boundary = ('--' + m.group(1).strip('"')).encode()
+    CHUNK    = 65536
+    OVERLAP  = len(boundary) + 8  # bytes a conservar entre lecturas
 
-    for part in body.split(delimiter)[1:]:
-        if part in (b'--\r\n', b'--', b'') or part.startswith(b'--'):
-            continue
-        if part.startswith(b'\r\n'):
-            part = part[2:]
-        if part.endswith(b'\r\n'):
-            part = part[:-2]
-        if b'\r\n\r\n' not in part:
-            continue
+    buf       = b''
+    remaining = total_length
+    fields    = {}
+    ok_files  = []
+    errors    = []
+    last_dest = os.path.join(music_dir, 'Subidas')
 
-        raw_headers, content = part.split(b'\r\n\r\n', 1)
+    out_fh    = None   # handle del archivo en curso
+    out_path  = None
+    out_sname = None
+    field_key = None
+    field_val = b''
+
+    def _read():
+        nonlocal buf, remaining
+        if remaining <= 0:
+            return
+        chunk = rfile.read(min(CHUNK, remaining))
+        if chunk:
+            buf       += chunk
+            remaining -= len(chunk)
+
+    def _close_part(tail):
+        nonlocal out_fh, out_path, out_sname, field_key, field_val
+        if tail.endswith(b'\r\n'):
+            tail = tail[:-2]
+        if out_fh is not None:
+            try:
+                out_fh.write(tail)
+                out_fh.close()
+                size_mb = f'{os.path.getsize(out_path) / 1048576:.1f} MB'
+                with state_lock:
+                    uploads.insert(0, {
+                        'filename': out_sname,
+                        'status':   'done',
+                        'size':     size_mb,
+                        'time':     datetime.now().strftime('%H:%M:%S'),
+                    })
+                    if len(uploads) > 50:
+                        uploads.pop()
+                ok_files.append(out_sname)
+            except Exception as e:
+                errors.append(f'{out_sname}: {e}')
+            finally:
+                out_fh = out_path = out_sname = None
+        elif field_key is not None:
+            field_val += tail
+            fields[field_key] = field_val.decode('utf-8', errors='replace')
+            field_key = None
+            field_val = b''
+
+    while True:
+        # Leer hasta tener suficientes datos para detectar el boundary
+        while boundary not in buf and remaining > 0:
+            _read()
+
+        pos = buf.find(boundary)
+        if pos == -1:
+            _close_part(buf)
+            break
+
+        _close_part(buf[:pos])
+        buf = buf[pos + len(boundary):]
+
+        # Comprobar marcador de fin: boundary + '--'
+        while len(buf) < 4 and remaining > 0:
+            _read()
+        if buf.startswith(b'--'):
+            break
+
+        if buf.startswith(b'\r\n'):
+            buf = buf[2:]
+
+        # Leer cabeceras de la parte
+        while b'\r\n\r\n' not in buf and remaining > 0:
+            _read()
+        hdr_end = buf.find(b'\r\n\r\n')
+        if hdr_end == -1:
+            break
+
+        raw_hdrs = buf[:hdr_end].decode('utf-8', errors='replace')
+        buf      = buf[hdr_end + 4:]
+
         hdrs = {}
-        for line in raw_headers.decode('utf-8', errors='replace').split('\r\n'):
+        for line in raw_hdrs.split('\r\n'):
             if ':' in line:
                 k, v = line.split(':', 1)
                 hdrs[k.strip().lower()] = v.strip()
 
-        cd     = hdrs.get('content-disposition', '')
-        nm     = re.search(r'name="([^"]*)"', cd)
-        fm     = re.search(r'filename="([^"]*)"', cd)
+        cd = hdrs.get('content-disposition', '')
+        nm = re.search(r'name="([^"]*)"', cd)
+        fm = re.search(r'filename="([^"]*)"', cd)
         if not nm:
             continue
 
-        field = nm.group(1)
         if fm:
-            files.append({'field': field, 'filename': fm.group(1), 'data': content})
-        else:
-            fields[field] = content.decode('utf-8', errors='replace')
+            filename  = fm.group(1)
+            ext       = Path(filename).suffix.lower()
+            field_key = None
+            field_val = b''
 
-    return fields, files
+            if ext not in AUDIO_EXTS:
+                errors.append(f'{filename} (formato no soportado)')
+                out_fh = None
+            else:
+                subfolder = (fields.get('subfolder') or 'Subidas').strip() or 'Subidas'
+                dest      = os.path.join(music_dir, subfolder)
+                last_dest = dest
+                try:
+                    os.makedirs(dest, exist_ok=True)
+                except PermissionError:
+                    errors.append(f'Sin permisos: sudo chown -R pi:pi {music_dir}')
+                    out_fh = None
+                    continue
+
+                safe = re.sub(r'[^\w\s\-\.\(\)\[\]áéíóúüñÁÉÍÓÚÜÑ]', '_', filename)
+                safe = re.sub(r'_+', '_', safe).strip('_')
+                path = os.path.join(dest, safe)
+                if os.path.exists(path):
+                    base, suf = os.path.splitext(safe)
+                    path = os.path.join(dest, f'{base}_{int(datetime.now().timestamp())}{suf}')
+                try:
+                    out_fh    = open(path, 'wb')
+                    out_path  = path
+                    out_sname = safe
+                except Exception as e:
+                    errors.append(f'{filename}: {e}')
+                    out_fh = None
+        else:
+            out_fh    = None
+            field_key = nm.group(1)
+            field_val = b''
+
+        # Transmitir cuerpo de la parte a disco, conservando OVERLAP bytes
+        while boundary not in buf and remaining > 0:
+            if len(buf) > OVERLAP:
+                to_write = buf[:len(buf) - OVERLAP]
+                if out_fh is not None:
+                    out_fh.write(to_write)
+                elif field_key is not None:
+                    field_val += to_write
+                buf = buf[len(buf) - OVERLAP:]
+            _read()
+
+    return ok_files, last_dest, errors
 
 
 # ── Letras automáticas ────────────────────────────────────────────────────────
@@ -558,76 +676,20 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length', 0))
 
         if length > MAX_UPLOAD_BYTES:
-            self._json({'error': f'Archivo demasiado grande (máx {MAX_UPLOAD_BYTES//1024//1024} MB)'}, 413)
+            self._json({'error': f'Demasiado grande (máx {MAX_UPLOAD_BYTES//1024//1024} MB)'}, 413)
             return
 
-        # Leer en chunks para no bloquear el socket en subidas grandes
-        body = bytearray()
-        remaining = length
-        while remaining > 0:
-            chunk = self.rfile.read(min(65536, remaining))
-            if not chunk:
-                break
-            body.extend(chunk)
-            remaining -= len(chunk)
-
         try:
-            fields, files = _parse_multipart(content_type, bytes(body))
+            ok_files, last_dest, errors = _stream_upload(
+                self.rfile, content_type, length, MUSIC_DIR)
         except Exception as e:
-            self._json({'ok': 0, 'errors': [f'Error al procesar el archivo: {e}']}, 400)
-            return
-        subfolder = (fields.get('subfolder') or 'Subidas').strip()
-        dest = os.path.join(MUSIC_DIR, subfolder)
-
-        try:
-            os.makedirs(dest, exist_ok=True)
-        except PermissionError:
-            self._json({'ok': 0, 'errors': [
-                f'Sin permisos de escritura en {dest}. '
-                f'Ejecuta en la Pi: sudo chown -R pi:pi {MUSIC_DIR}'
-            ]}, 403)
+            self._json({'ok': 0, 'errors': [f'Error interno: {e}']}, 500)
             return
 
-        ok_count = 0
-        errors   = []
-
-        for f in files:
-            filename = f['filename']
-            ext      = Path(filename).suffix.lower()
-            if ext not in AUDIO_EXTS:
-                errors.append(f'{filename} (formato no soportado)')
-                continue
-
-            # Sanitize filename
-            safe_name = re.sub(r'[^\w\s\-\.\(\)\[\]áéíóúüñÁÉÍÓÚÜÑ]', '_', filename)
-            safe_name = re.sub(r'_+', '_', safe_name).strip('_')
-            out_path  = os.path.join(dest, safe_name)
-
-            # Avoid overwrite
-            if os.path.exists(out_path):
-                base, suf = os.path.splitext(safe_name)
-                out_path  = os.path.join(dest, f'{base}_{int(datetime.now().timestamp())}{suf}')
-
-            try:
-                with open(out_path, 'wb') as fh:
-                    fh.write(f['data'])
-                size_str = f'{len(f["data"]) / 1048576:.1f} MB'
-                with state_lock:
-                    uploads.insert(0, {
-                        'filename': safe_name,
-                        'status':   'done',
-                        'size':     size_str,
-                        'time':     datetime.now().strftime('%H:%M:%S'),
-                    })
-                    if len(uploads) > 50:
-                        uploads.pop()
-                ok_count += 1
-            except Exception as e:
-                errors.append(f'{filename}: {e}')
-
+        ok_count = len(ok_files)
         if ok_count:
-            _notify(f'{ok_count} archivo(s) subido(s) a {subfolder}')
-            threading.Thread(target=_run_lyrics, args=(dest,), daemon=True).start()
+            _notify(f'{ok_count} archivo(s) subido(s)')
+            threading.Thread(target=_run_lyrics, args=(last_dest,), daemon=True).start()
 
         self._json({'ok': ok_count, 'errors': errors})
 
