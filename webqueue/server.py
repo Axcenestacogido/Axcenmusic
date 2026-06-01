@@ -711,7 +711,7 @@ def render_page(flash='', flash_ok=True):
   }}
 
   function escJs(s) {{
-    return (s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/'/g,"\\'");
+    return (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }}
 
   // ── Editar tags ───────────────────────────────────────────────────
@@ -763,7 +763,7 @@ def render_page(flash='', flash_ok=True):
 
   // ── Eliminar canción ─────────────────────────────────────────────
   async function deleteSong(pathB64, title) {{
-    if (!confirm('¿Eliminar "' + title + '"?\nEsta acción no se puede deshacer.')) return;
+    if (!confirm('¿Eliminar "' + title + '"?\\nEsta acción no se puede deshacer.')) return;
     const fd = new FormData();
     fd.append('path', pathB64);
     try {{
