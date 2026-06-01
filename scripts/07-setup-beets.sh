@@ -34,7 +34,7 @@ info "Instalando beets y plugins..."
   pylast \
   Pillow \
   pyacoustid \
-  python-musicbrainzngs
+  musicbrainzngs
 
 info "Beets $("$VENV/bin/beet" version 2>/dev/null | head -1 || echo 'instalado') listo."
 
