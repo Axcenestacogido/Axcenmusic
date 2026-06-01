@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    container_name: navidrome
+    user: "1000:1000"
+    restart: unless-stopped
+    ports:
+      - "${ND_PORT:-4533}:4533"
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_DATAFOLDER: /data
+      ND_SCANSCHEDULE: "${ND_SCAN_SCHEDULE:-@every 1h}"
+      ND_LOGLEVEL: "${ND_LOG_LEVEL:-info}"
+      ND_SESSIONTIMEOUT: "${ND_SESSION_TIMEOUT:-24h}"
+      ND_ENABLETRANSCODINGCONFIG: "true"
+      ND_DEFAULTTHEME: Dark
+    volumes:
+      - "${ND_DATA_DIR:-./navidrome-data}:/data"
+      - "${MUSIC_DIR:-/mnt/music}:/music:ro"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4533/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
