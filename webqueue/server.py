@@ -340,6 +340,7 @@ def _list_songs():
                     't': tags.get('title', Path(fn).stem),
                     'ar': tags.get('artist', ''),
                     'al': tags.get('album', ''),
+                    'ge': tags.get('genre', ''),
                     'sz': f'{os.path.getsize(path) / 1048576:.1f} MB',
                 })
             except Exception:
@@ -357,7 +358,7 @@ def _get_cover_bytes(file_path):
         pass
     return None, None
 
-def _write_tags(file_path, title, artist, album, cover_data=None):
+def _write_tags(file_path, title, artist, album, genre=None, cover_data=None):
     suffix = Path(file_path).suffix.lower()
     tmp    = file_path + '.__edit' + suffix
     ctmp   = None
@@ -372,6 +373,7 @@ def _write_tags(file_path, title, artist, album, cover_data=None):
         if title  is not None: cmd += ['-metadata', f'title={title}']
         if artist is not None: cmd += ['-metadata', f'artist={artist}']
         if album  is not None: cmd += ['-metadata', f'album={album}']
+        if genre  is not None: cmd += ['-metadata', f'genre={genre}']
         if cover_data:
             cmd += ['-metadata:s:v', 'title=Album cover',
                     '-metadata:s:v', 'comment=Cover (front)',
@@ -631,7 +633,9 @@ def render_page(flash='', flash_ok=True):
           <label>Artista</label>
           <input type="text" id="edit-artist" style="margin-bottom:8px">
           <label>Álbum</label>
-          <input type="text" id="edit-album">
+          <input type="text" id="edit-album" style="margin-bottom:8px">
+          <label>Género</label>
+          <input type="text" id="edit-genre" placeholder="Pop, Rock, Hip-Hop…">
         </div>
       </div>
 
@@ -699,7 +703,7 @@ def render_page(flash='', flash_ok=True):
             ${{escHtml(s.ar || '—')}} · ${{escHtml(s.al || '—')}} · ${{s.sz}}</div>
         </div>
         <button class="btn-scan" style="padding:6px 10px;font-size:.8rem"
-                onclick='openEdit("${{s.p}}","${{escJs(s.t)}}","${{escJs(s.ar)}}","${{escJs(s.al)}}")'>
+                onclick='openEdit("${{s.p}}","${{escJs(s.t)}}","${{escJs(s.ar)}}","${{escJs(s.al)}}","${{escJs(s.ge)}}")'>
           ✎
         </button>
         <button class="btn-scan" style="padding:6px 10px;font-size:.8rem;color:#f87171"
@@ -715,11 +719,12 @@ def render_page(flash='', flash_ok=True):
   }}
 
   // ── Editar tags ───────────────────────────────────────────────────
-  function openEdit(pathB64, title, artist, album) {{
+  function openEdit(pathB64, title, artist, album, genre) {{
     document.getElementById('edit-path').value = pathB64;
     document.getElementById('edit-title').value = title;
     document.getElementById('edit-artist').value = artist;
     document.getElementById('edit-album').value = album;
+    document.getElementById('edit-genre').value = genre || '';
     document.getElementById('edit-error').style.display = 'none';
     document.getElementById('edit-cover-input').value = '';
     const img = document.getElementById('edit-cover-preview');
@@ -747,6 +752,7 @@ def render_page(flash='', flash_ok=True):
     fd.append('title',  document.getElementById('edit-title').value);
     fd.append('artist', document.getElementById('edit-artist').value);
     fd.append('album',  document.getElementById('edit-album').value);
+    fd.append('genre',  document.getElementById('edit-genre').value);
     const coverFile = document.getElementById('edit-cover-input').files[0];
     if (coverFile) fd.append('cover', coverFile);
     const errEl = document.getElementById('edit-error');
@@ -1036,6 +1042,7 @@ class Handler(BaseHTTPRequestHandler):
             fields.get('title'),
             fields.get('artist'),
             fields.get('album'),
+            fields.get('genre'),
             cover_data or None,
         )
         if ok:
