@@ -13,38 +13,32 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
 [[ $EUID -ne 0 ]] && { echo "Ejecutar con sudo"; exit 1; }
 
+# ── pip: usar python3 -m pip (compatible con todas las versiones) ─
+PIP="python3 -m pip"
+
 # ── Dependencias del sistema ──────────────────────────────────────
 info "Instalando dependencias del sistema..."
-apt-get install -y -qq \
-  python3-pip python3-dev \
-  libchromaprint-tools \
-  ffmpeg \
-  chromaprint-tools 2>/dev/null || true
+apt-get install -y -qq python3-pip python3-dev ffmpeg \
+  libchromaprint-tools chromaprint-tools 2>/dev/null || \
+apt-get install -y -qq python3-pip python3-dev ffmpeg 2>/dev/null || true
+
+# Asegurar que pip está disponible
+python3 -m ensurepip --upgrade 2>/dev/null || true
 
 # ── Beets + plugins ──────────────────────────────────────────────
 info "Instalando beets y plugins..."
-pip3 install --quiet --break-system-packages \
-  beets \
-  requests \
-  pylast \
-  Pillow \
-  pyacoustid \
-  python-musicbrainzngs 2>/dev/null || \
-pip3 install --quiet \
-  beets \
-  requests \
-  pylast \
-  Pillow \
-  pyacoustid \
-  python-musicbrainzngs
+$PIP install --quiet --break-system-packages \
+  beets requests pylast Pillow pyacoustid python-musicbrainzngs 2>/dev/null || \
+$PIP install --quiet \
+  beets requests pylast Pillow pyacoustid python-musicbrainzngs
 
-info "Beets $(beet version 2>/dev/null | head -1) instalado."
+info "Beets $(beet version 2>/dev/null | head -1 || echo 'instalado') listo."
 
 # ── aubio (análisis BPM) ──────────────────────────────────────────
 info "Instalando aubio para análisis de BPM..."
-pip3 install --quiet --break-system-packages aubio 2>/dev/null || \
-pip3 install --quiet aubio
-info "aubio instalado."
+$PIP install --quiet --break-system-packages aubio 2>/dev/null || \
+$PIP install --quiet aubio 2>/dev/null || \
+warn "aubio no se pudo instalar — el análisis de BPM no estará disponible."
 
 # ── Directorio de trabajo de beets ───────────────────────────────
 BEETS_DIR="/opt/axcenmusic/beets"
@@ -68,14 +62,13 @@ info "Directorio de playlists: $MUSIC_DIR/Playlists"
 # Directorio de caché de análisis
 mkdir -p "$REPO_DIR/.cache"
 
-# ── Wrapper beet con config correcta ─────────────────────────────
+# ── Wrapper axcenbeet ─────────────────────────────────────────────
 cat > /usr/local/bin/axcenbeet <<EOF
 #!/usr/bin/env bash
-# Wrapper de beet con la configuración de Axcenmusic
 BEETSDIR=$BEETS_DIR exec beet "\$@"
 EOF
 chmod +x /usr/local/bin/axcenbeet
-info "Comando 'axcenbeet' disponible (equivale a: BEETSDIR=$BEETS_DIR beet ...)"
+info "Comando 'axcenbeet' disponible."
 
 info "Setup de beets completado."
 echo ""
