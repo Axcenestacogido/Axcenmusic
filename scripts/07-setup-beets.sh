@@ -13,62 +13,63 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
 [[ $EUID -ne 0 ]] && { echo "Ejecutar con sudo"; exit 1; }
 
-# ── pip: usar python3 -m pip (compatible con todas las versiones) ─
-PIP="python3 -m pip"
+VENV="/opt/axcenmusic/venv"
 
 # ── Dependencias del sistema ──────────────────────────────────────
 info "Instalando dependencias del sistema..."
-apt-get install -y -qq python3-pip python3-dev ffmpeg \
+apt-get install -y -qq python3-venv python3-dev python3-full ffmpeg \
   libchromaprint-tools chromaprint-tools 2>/dev/null || \
-apt-get install -y -qq python3-pip python3-dev ffmpeg 2>/dev/null || true
+apt-get install -y -qq python3-venv python3-dev python3-full ffmpeg || true
 
-# Asegurar que pip está disponible
-python3 -m ensurepip --upgrade 2>/dev/null || true
+# ── Crear entorno virtual ─────────────────────────────────────────
+info "Creando entorno virtual en $VENV..."
+python3 -m venv "$VENV"
 
-# ── Beets + plugins ──────────────────────────────────────────────
+# ── Instalar beets y plugins en el venv ──────────────────────────
 info "Instalando beets y plugins..."
-$PIP install --quiet --break-system-packages \
-  beets requests pylast Pillow pyacoustid python-musicbrainzngs 2>/dev/null || \
-$PIP install --quiet \
-  beets requests pylast Pillow pyacoustid python-musicbrainzngs
+"$VENV/bin/pip" install --quiet --upgrade pip
+"$VENV/bin/pip" install --quiet \
+  beets \
+  requests \
+  pylast \
+  Pillow \
+  pyacoustid \
+  python-musicbrainzngs
 
-info "Beets $(beet version 2>/dev/null | head -1 || echo 'instalado') listo."
+info "Beets $("$VENV/bin/beet" version 2>/dev/null | head -1 || echo 'instalado') listo."
 
 # ── aubio (análisis BPM) ──────────────────────────────────────────
 info "Instalando aubio para análisis de BPM..."
-$PIP install --quiet --break-system-packages aubio 2>/dev/null || \
-$PIP install --quiet aubio 2>/dev/null || \
-warn "aubio no se pudo instalar — el análisis de BPM no estará disponible."
+"$VENV/bin/pip" install --quiet aubio 2>/dev/null \
+  && info "aubio instalado." \
+  || warn "aubio no se pudo instalar — el análisis de BPM usará modo básico."
 
 # ── Directorio de trabajo de beets ───────────────────────────────
 BEETS_DIR="/opt/axcenmusic/beets"
 mkdir -p "$BEETS_DIR"
 
-# Enlazar la config del repo
 if [[ ! -f "$BEETS_DIR/config.yaml" ]]; then
   ln -sf "$REPO_DIR/beets/config.yaml" "$BEETS_DIR/config.yaml"
 fi
 
-# Sustituir la ruta de la biblioteca por la correcta
 MUSIC_DIR="${MUSIC_DIR:-/mnt/music}"
 sed -i "s|directory: /mnt/music|directory: $MUSIC_DIR|" "$REPO_DIR/beets/config.yaml"
 sed -i "s|library: /opt/axcenmusic/beets/library.db|library: $BEETS_DIR/library.db|" "$REPO_DIR/beets/config.yaml"
 
-# Playlist dir
 mkdir -p "$MUSIC_DIR/Playlists"
 chown "${PI_USER:-pi}:${PI_USER:-pi}" "$MUSIC_DIR/Playlists" 2>/dev/null || true
-info "Directorio de playlists: $MUSIC_DIR/Playlists"
-
-# Directorio de caché de análisis
 mkdir -p "$REPO_DIR/.cache"
 
-# ── Wrapper axcenbeet ─────────────────────────────────────────────
+# ── Wrapper axcenbeet (usa el venv) ───────────────────────────────
 cat > /usr/local/bin/axcenbeet <<EOF
 #!/usr/bin/env bash
-BEETSDIR=$BEETS_DIR exec beet "\$@"
+BEETSDIR=$BEETS_DIR exec $VENV/bin/beet "\$@"
 EOF
 chmod +x /usr/local/bin/axcenbeet
 info "Comando 'axcenbeet' disponible."
+
+# ── Guardar ruta del venv para otros scripts ──────────────────────
+echo "AXCEN_VENV=$VENV" >> "$REPO_DIR/.env" 2>/dev/null || true
 
 info "Setup de beets completado."
 echo ""

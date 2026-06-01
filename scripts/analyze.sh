@@ -16,8 +16,16 @@ info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
-command -v python3 &>/dev/null || error "python3 no encontrado."
-command -v ffmpeg  &>/dev/null || error "ffmpeg no encontrado. Ejecuta: sudo bash scripts/06-setup-extras.sh"
+command -v ffmpeg &>/dev/null || error "ffmpeg no encontrado. Ejecuta: sudo bash scripts/06-setup-extras.sh"
+
+# Usar Python del venv si existe, si no el del sistema
+VENV="${AXCEN_VENV:-/opt/axcenmusic/venv}"
+if [[ -x "$VENV/bin/python3" ]]; then
+  PYTHON="$VENV/bin/python3"
+else
+  PYTHON="python3"
+fi
+command -v "$PYTHON" &>/dev/null || error "python3 no encontrado."
 
 MUSIC_DIR="${MUSIC_DIR:-/mnt/music}"
 TARGET="${1:-$MUSIC_DIR}"
@@ -35,7 +43,7 @@ echo "  Esto puede tardar varios minutos en bibliotecas grandes."
 echo "  Si lo cortas a mitad, la próxima vez retoma donde lo dejó."
 echo ""
 
-python3 "$REPO_DIR/scripts/analyze.py" \
+"$PYTHON" "$REPO_DIR/scripts/analyze.py" \
   "$TARGET" \
   --cache "$CACHE_FILE"
 
