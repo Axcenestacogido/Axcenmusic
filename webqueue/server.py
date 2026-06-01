@@ -362,22 +362,38 @@ def _write_tags(file_path, title, artist, album, genre=None, cover_data=None):
     suffix = Path(file_path).suffix.lower()
     tmp    = file_path + '.__edit' + suffix
     ctmp   = None
+
+    # Formatos que no soportan portada embebida
+    NO_COVER = {'.wav', '.aiff', '.aif', '.wma'}
+    # Formatos que usan ID3v2 (solo MP3)
+    USE_ID3  = {'.mp3'}
+
+    use_cover = cover_data and suffix not in NO_COVER
+
     try:
         cmd = ['ffmpeg', '-y', '-i', file_path]
-        if cover_data:
+
+        if use_cover:
             ctmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
             ctmp.write(cover_data)
             ctmp.close()
             cmd += ['-i', ctmp.name, '-map', '0:a', '-map', '1:0']
-        cmd += ['-codec', 'copy', '-id3v2_version', '3', '-map_metadata', '0']
+
+        cmd += ['-codec', 'copy', '-map_metadata', '0']
+
+        if suffix in USE_ID3:
+            cmd += ['-id3v2_version', '3']
+
         if title  is not None: cmd += ['-metadata', f'title={title}']
         if artist is not None: cmd += ['-metadata', f'artist={artist}']
         if album  is not None: cmd += ['-metadata', f'album={album}']
         if genre  is not None: cmd += ['-metadata', f'genre={genre}']
-        if cover_data:
+
+        if use_cover:
             cmd += ['-metadata:s:v', 'title=Album cover',
                     '-metadata:s:v', 'comment=Cover (front)',
                     '-disposition:v', 'attached_pic']
+
         cmd.append(tmp)
         r = subprocess.run(cmd, capture_output=True, timeout=60)
         if r.returncode == 0:
