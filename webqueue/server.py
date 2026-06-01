@@ -8,11 +8,16 @@ Accesible solo via Tailscale: http://pimusic:8888
 """
 import os
 import re
+import json
+import base64
+import shutil
+import tempfile
 import queue
 import threading
 import subprocess
 import html
 import urllib.request
+import urllib.parse
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, unquote_plus
@@ -296,6 +301,98 @@ def _trigger_scan():
         return False, str(e)
 
 
+# ── Biblioteca: listar, leer tags, portada, editar, eliminar ─────────────────
+
+def _safe_path(b64):
+    """Decodifica y valida que la ruta esté dentro de MUSIC_DIR."""
+    try:
+        path = base64.b64decode(b64.encode()).decode()
+    except Exception:
+        return None
+    path = os.path.realpath(path)
+    if not path.startswith(os.path.realpath(MUSIC_DIR) + os.sep):
+        return None
+    return path
+
+def _read_tags(file_path):
+    try:
+        cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+               '-show_format', file_path]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        tags = json.loads(r.stdout).get('format', {}).get('tags', {})
+        return {k.lower(): v for k, v in tags.items()}
+    except Exception:
+        return {}
+
+def _list_songs():
+    songs = []
+    for root, _, files in os.walk(MUSIC_DIR):
+        for fn in sorted(files):
+            if Path(fn).suffix.lower() not in AUDIO_EXTS:
+                continue
+            path = os.path.join(root, fn)
+            try:
+                tags = _read_tags(path)
+                songs.append({
+                    'p': base64.b64encode(path.encode()).decode(),
+                    'f': fn,
+                    'r': os.path.relpath(path, MUSIC_DIR),
+                    't': tags.get('title', Path(fn).stem),
+                    'ar': tags.get('artist', ''),
+                    'al': tags.get('album', ''),
+                    'sz': f'{os.path.getsize(path) / 1048576:.1f} MB',
+                })
+            except Exception:
+                pass
+    return songs
+
+def _get_cover_bytes(file_path):
+    try:
+        cmd = ['ffmpeg', '-i', file_path, '-an', '-vframes', '1',
+               '-f', 'image2', '-vcodec', 'copy', 'pipe:1']
+        r = subprocess.run(cmd, capture_output=True, timeout=10)
+        if r.returncode == 0 and len(r.stdout) > 100:
+            return r.stdout, 'image/jpeg'
+    except Exception:
+        pass
+    return None, None
+
+def _write_tags(file_path, title, artist, album, cover_data=None):
+    suffix = Path(file_path).suffix.lower()
+    tmp    = file_path + '.__edit' + suffix
+    ctmp   = None
+    try:
+        cmd = ['ffmpeg', '-y', '-i', file_path]
+        if cover_data:
+            ctmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+            ctmp.write(cover_data)
+            ctmp.close()
+            cmd += ['-i', ctmp.name, '-map', '0:a', '-map', '1:0']
+        cmd += ['-codec', 'copy', '-id3v2_version', '3', '-map_metadata', '0']
+        if title  is not None: cmd += ['-metadata', f'title={title}']
+        if artist is not None: cmd += ['-metadata', f'artist={artist}']
+        if album  is not None: cmd += ['-metadata', f'album={album}']
+        if cover_data:
+            cmd += ['-metadata:s:v', 'title=Album cover',
+                    '-metadata:s:v', 'comment=Cover (front)',
+                    '-disposition:v', 'attached_pic']
+        cmd.append(tmp)
+        r = subprocess.run(cmd, capture_output=True, timeout=60)
+        if r.returncode == 0:
+            shutil.move(tmp, file_path)
+            return True, ''
+        return False, r.stderr.decode(errors='replace')[-300:]
+    except Exception as e:
+        return False, str(e)
+    finally:
+        if ctmp and os.path.exists(ctmp.name):
+            try: os.unlink(ctmp.name)
+            except: pass
+        if os.path.exists(tmp):
+            try: os.unlink(tmp)
+            except: pass
+
+
 # ── HTML ───────────────────────────────────────────────────────────────────────
 def _badge(s):
     return {
@@ -439,8 +536,9 @@ def render_page(flash='', flash_ok=True):
   {flash_html}
 
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('upload')">Subir archivos</div>
-    <div class="tab" onclick="switchTab('download')">Descargar URL</div>
+    <div class="tab active" onclick="switchTab('upload')">Subir</div>
+    <div class="tab" onclick="switchTab('download')">Descargar</div>
+    <div class="tab" onclick="switchTab('library')">Biblioteca</div>
     <div class="tab" onclick="switchTab('history')">Historial</div>
   </div>
 
@@ -495,6 +593,58 @@ def render_page(flash='', flash_ok=True):
     {active_html}
   </div>
 
+  <!-- ── BIBLIOTECA ── -->
+  <div id="tab-library" class="tab-content">
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Canciones en la biblioteca</span>
+        <button class="btn-scan" onclick="loadLibrary()">↺ Recargar</button>
+      </div>
+      <div id="lib-loading" class="muted">Cargando…</div>
+      <div id="lib-list"></div>
+    </div>
+  </div>
+
+  <!-- ── MODAL EDITAR ── -->
+  <div id="edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);
+       z-index:100;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#27272a;border-radius:14px;padding:20px;width:100%;max-width:480px">
+      <div style="color:#f59e0b;font-weight:700;font-size:1.1rem;margin-bottom:14px">Editar canción</div>
+      <input type="hidden" id="edit-path">
+
+      <div style="display:flex;gap:12px;margin-bottom:14px;align-items:flex-start">
+        <div style="flex:0 0 80px">
+          <img id="edit-cover-preview" src="" alt="portada"
+               style="width:80px;height:80px;object-fit:cover;border-radius:8px;
+                      background:#3f3f46;display:block">
+          <label style="display:block;text-align:center;margin-top:4px;
+                        font-size:.72rem;color:#f59e0b;cursor:pointer"
+                 onclick="document.getElementById('edit-cover-input').click()">
+            Cambiar portada
+          </label>
+          <input type="file" id="edit-cover-input" accept="image/*" style="display:none"
+                 onchange="previewCover(this)">
+        </div>
+        <div style="flex:1">
+          <label>Título</label>
+          <input type="text" id="edit-title" style="margin-bottom:8px">
+          <label>Artista</label>
+          <input type="text" id="edit-artist" style="margin-bottom:8px">
+          <label>Álbum</label>
+          <input type="text" id="edit-album">
+        </div>
+      </div>
+
+      <div id="edit-error" style="color:#f87171;font-size:.85rem;margin-bottom:8px;display:none"></div>
+
+      <div style="display:flex;gap:8px">
+        <button class="btn" style="flex:1" onclick="saveEdit()">Guardar</button>
+        <button class="btn-scan" style="flex:0 0 auto;padding:11px 18px"
+                onclick="closeModal()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── HISTORIAL ── -->
   <div id="tab-history" class="tab-content">
     <div class="card">
@@ -509,13 +659,121 @@ def render_page(flash='', flash_ok=True):
 
   <script>
   // ── Tabs ──────────────────────────────────────────────────────────
+  const TAB_NAMES = ['upload','download','library','history'];
   function switchTab(name) {{
-    document.querySelectorAll('.tab').forEach((t,i) => {{
-      const names = ['upload','download','history'];
-      t.classList.toggle('active', names[i] === name);
-    }});
+    document.querySelectorAll('.tab').forEach((t,i) =>
+      t.classList.toggle('active', TAB_NAMES[i] === name));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
+    if (name === 'library') loadLibrary();
+  }}
+
+  // ── Biblioteca ────────────────────────────────────────────────────
+  async function loadLibrary() {{
+    document.getElementById('lib-loading').textContent = 'Cargando…';
+    document.getElementById('lib-list').innerHTML = '';
+    let songs;
+    try {{
+      const r = await fetch('/api/library');
+      songs = await r.json();
+    }} catch(e) {{
+      document.getElementById('lib-loading').textContent = 'Error al cargar la biblioteca.';
+      return;
+    }}
+    document.getElementById('lib-loading').style.display = 'none';
+    if (!songs.length) {{
+      document.getElementById('lib-list').innerHTML = '<p class="muted">Sin canciones todavía.</p>';
+      return;
+    }}
+    const rows = songs.map(s => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;
+                  border-bottom:1px solid #3f3f46">
+        <img src="/cover?p=${{encodeURIComponent(s.p)}}" alt=""
+             style="width:44px;height:44px;object-fit:cover;border-radius:6px;
+                    background:#3f3f46;flex-shrink:0"
+             onerror="this.style.background='#3f3f46';this.src=''">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+            ${{escHtml(s.t)}}</div>
+          <div class="muted" style="font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+            ${{escHtml(s.ar || '—')}} · ${{escHtml(s.al || '—')}} · ${{s.sz}}</div>
+        </div>
+        <button class="btn-scan" style="padding:6px 10px;font-size:.8rem"
+                onclick='openEdit("${{s.p}}","${{escJs(s.t)}}","${{escJs(s.ar)}}","${{escJs(s.al)}}")'>
+          ✎
+        </button>
+        <button class="btn-scan" style="padding:6px 10px;font-size:.8rem;color:#f87171"
+                onclick='deleteSong("${{s.p}}","${{escJs(s.t)}}")'>
+          🗑
+        </button>
+      </div>`).join('');
+    document.getElementById('lib-list').innerHTML = rows;
+  }}
+
+  function escJs(s) {{
+    return (s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/'/g,"\\'");
+  }}
+
+  // ── Editar tags ───────────────────────────────────────────────────
+  function openEdit(pathB64, title, artist, album) {{
+    document.getElementById('edit-path').value = pathB64;
+    document.getElementById('edit-title').value = title;
+    document.getElementById('edit-artist').value = artist;
+    document.getElementById('edit-album').value = album;
+    document.getElementById('edit-error').style.display = 'none';
+    document.getElementById('edit-cover-input').value = '';
+    const img = document.getElementById('edit-cover-preview');
+    img.src = '/cover?p=' + encodeURIComponent(pathB64);
+    img.style.display = 'block';
+    document.getElementById('edit-modal').style.display = 'flex';
+  }}
+
+  function closeModal() {{
+    document.getElementById('edit-modal').style.display = 'none';
+  }}
+
+  function previewCover(input) {{
+    if (!input.files[0]) return;
+    const reader = new FileReader();
+    reader.onload = e => {{
+      document.getElementById('edit-cover-preview').src = e.target.result;
+    }};
+    reader.readAsDataURL(input.files[0]);
+  }}
+
+  async function saveEdit() {{
+    const fd = new FormData();
+    fd.append('path',   document.getElementById('edit-path').value);
+    fd.append('title',  document.getElementById('edit-title').value);
+    fd.append('artist', document.getElementById('edit-artist').value);
+    fd.append('album',  document.getElementById('edit-album').value);
+    const coverFile = document.getElementById('edit-cover-input').files[0];
+    if (coverFile) fd.append('cover', coverFile);
+    const errEl = document.getElementById('edit-error');
+    errEl.style.display = 'none';
+    try {{
+      const r   = await fetch('/edit', {{method:'POST', body: fd}});
+      const res = await r.json();
+      if (res.ok) {{ closeModal(); loadLibrary(); }}
+      else {{ errEl.textContent = res.error || 'Error desconocido'; errEl.style.display='block'; }}
+    }} catch(e) {{
+      errEl.textContent = 'Error de red'; errEl.style.display = 'block';
+    }}
+  }}
+
+  // ── Eliminar canción ─────────────────────────────────────────────
+  async function deleteSong(pathB64, title) {{
+    if (!confirm('¿Eliminar "' + title + '"?\nEsta acción no se puede deshacer.')) return;
+    const fd = new FormData();
+    fd.append('path', pathB64);
+    try {{
+      const r   = await fetch('/delete', {{method:'POST', body: fd}});
+      const res = await r.json();
+      if (res.ok) loadLibrary();
+      else alert('Error: ' + (res.error || 'desconocido'));
+    }} catch(e) {{
+      alert('Error de red');
+    }}
   }}
 
   // ── Drag & drop ──────────────────────────────────────────────────
@@ -634,12 +892,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        from urllib.parse import urlparse, parse_qs, unquote_plus as uq
         parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
-        flash = uq(qs.get('flash', [''])[0])
-        ok    = qs.get('ok', ['1'])[0] == '1'
-        self._html(render_page(flash, ok))
+        qs     = urllib.parse.parse_qs(parsed.query)
+
+        if parsed.path == '/api/library':
+            self._json(_list_songs())
+        elif parsed.path == '/cover':
+            self._handle_cover(qs)
+        else:
+            flash = unquote_plus(qs.get('flash', [''])[0])
+            ok    = qs.get('ok', ['1'])[0] == '1'
+            self._html(render_page(flash, ok))
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -650,6 +913,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_upload()
         elif path == '/scan':
             self._handle_scan()
+        elif path == '/edit':
+            self._handle_edit()
+        elif path == '/delete':
+            self._handle_delete()
         else:
             self._html('<p>Not found</p>', 404)
 
@@ -697,6 +964,149 @@ class Handler(BaseHTTPRequestHandler):
         success, msg = _trigger_scan()
         self._redirect('/', msg, ok=success)
 
+    def _handle_cover(self, qs):
+        b64  = unquote_plus(qs.get('p', [''])[0])
+        path = _safe_path(b64)
+        if not path or not os.path.isfile(path):
+            self.send_response(404); self.end_headers(); return
+        data, mime = _get_cover_bytes(path)
+        if not data:
+            self.send_response(204); self.end_headers(); return
+        self.send_response(200)
+        self.send_header('Content-Type', mime)
+        self.send_header('Content-Length', len(data))
+        self.send_header('Cache-Control', 'max-age=3600')
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _handle_edit(self):
+        content_type = self.headers.get('Content-Type', '')
+        length       = int(self.headers.get('Content-Length', 0))
+        try:
+            ok_files, _, errors = _stream_upload(self.rfile, content_type, length, MUSIC_DIR)
+            # _stream_upload también puede procesar campos de texto como "pseudo-upload"
+            # Pero aquí necesitamos leer los campos manualmente vía el mismo parser.
+            # Reusamos _stream_upload para parsear campos + cover (si hay).
+        except Exception:
+            pass
+
+        # Re-leer usando el parser genérico de multipart para campos de texto + cover
+        # Guardamos el body en memoria (el edit es pequeño: solo texto + imagen pequeña)
+        self.rfile.seek(0) if hasattr(self.rfile, 'seek') else None
+
+        # Leemos directamente con el parser de stream adaptado
+        ct = content_type
+        m  = re.search(r'boundary=([^\s;]+)', ct)
+        if not m:
+            self._json({'ok': False, 'error': 'Bad request'}); return
+
+        boundary = ('--' + m.group(1).strip('"')).encode()
+        CHUNK    = 65536
+        OVERLAP  = len(boundary) + 8
+        buf = b''; remaining = length
+        fields = {}; cover_data = None
+
+        def _r():
+            nonlocal buf, remaining
+            if remaining <= 0: return
+            c = self.rfile.read(min(CHUNK, remaining))
+            if c: buf += c; remaining -= len(c)
+
+        def _close(tail, fkey, fval, is_cover_part, cover_buf):
+            if tail.endswith(b'\r\n'): tail = tail[:-2]
+            if is_cover_part:
+                return cover_buf + tail
+            elif fkey:
+                fields[fkey] = (fval + tail).decode('utf-8', errors='replace')
+            return cover_buf
+
+        fkey = None; fval = b''; is_cover = False; cover_buf = b''
+
+        while True:
+            while boundary not in buf and remaining > 0: _r()
+            pos = buf.find(boundary)
+            if pos == -1:
+                cover_buf = _close(buf, fkey, fval, is_cover, cover_buf); break
+            cover_buf = _close(buf[:pos], fkey, fval, is_cover, cover_buf)
+            buf = buf[pos + len(boundary):]
+            while len(buf) < 4 and remaining > 0: _r()
+            if buf.startswith(b'--'): break
+            if buf.startswith(b'\r\n'): buf = buf[2:]
+            while b'\r\n\r\n' not in buf and remaining > 0: _r()
+            he = buf.find(b'\r\n\r\n')
+            if he == -1: break
+            raw = buf[:he].decode('utf-8', errors='replace'); buf = buf[he+4:]
+            hdrs = {}
+            for line in raw.split('\r\n'):
+                if ':' in line: k,v = line.split(':',1); hdrs[k.strip().lower()] = v.strip()
+            cd = hdrs.get('content-disposition','')
+            nm = re.search(r'name="([^"]*)"', cd)
+            fm = re.search(r'filename="([^"]*)"', cd)
+            if not nm: fkey = None; is_cover = False; continue
+            if fm:
+                fkey = None; fval = b''; is_cover = True; cover_buf = b''
+            else:
+                fkey = nm.group(1); fval = b''; is_cover = False; cover_buf = b''
+            while boundary not in buf and remaining > 0:
+                if len(buf) > OVERLAP:
+                    chunk = buf[:len(buf)-OVERLAP]
+                    if is_cover: cover_buf += chunk
+                    elif fkey: fval += chunk
+                    buf = buf[len(buf)-OVERLAP:]
+                _r()
+        if cover_buf: cover_data = cover_buf
+
+        path = _safe_path(fields.get('path',''))
+        if not path or not os.path.isfile(path):
+            self._json({'ok': False, 'error': 'Archivo no encontrado'}); return
+
+        ok, err = _write_tags(
+            path,
+            fields.get('title'),
+            fields.get('artist'),
+            fields.get('album'),
+            cover_data if cover_data else None,
+        )
+        if ok:
+            threading.Thread(target=_trigger_scan, daemon=True).start()
+            self._json({'ok': True})
+        else:
+            self._json({'ok': False, 'error': err})
+
+    def _handle_delete(self):
+        content_type = self.headers.get('Content-Type', '')
+        length       = int(self.headers.get('Content-Length', 0))
+        body         = self.rfile.read(length)
+
+        # Parsear como multipart o form-urlencoded
+        b64 = ''
+        if 'multipart' in content_type:
+            m = re.search(r'boundary=([^\s;]+)', content_type)
+            if m:
+                boundary = ('--' + m.group(1).strip('"')).encode()
+                for part in body.split(boundary)[1:]:
+                    if part.startswith(b'--'): continue
+                    if part.startswith(b'\r\n'): part = part[2:]
+                    if b'\r\n\r\n' not in part: continue
+                    hdr, val = part.split(b'\r\n\r\n', 1)
+                    if b'name="path"' in hdr:
+                        b64 = val.strip().rstrip(b'\r\n').decode()
+                        break
+        else:
+            params = {k: unquote_plus(v) for k,v in
+                      (p.split('=',1) for p in body.decode().split('&') if '=' in p)}
+            b64 = params.get('path','')
+
+        path = _safe_path(b64)
+        if not path or not os.path.isfile(path):
+            self._json({'ok': False, 'error': 'Archivo no encontrado'}); return
+        try:
+            os.remove(path)
+            threading.Thread(target=_trigger_scan, daemon=True).start()
+            self._json({'ok': True})
+        except Exception as e:
+            self._json({'ok': False, 'error': str(e)})
+
 
 # ── Bootstrap .env ────────────────────────────────────────────────────────────
 def _load_env():
@@ -716,10 +1126,6 @@ def _load_env():
     ND_ADMIN_USER    = os.environ.get('ND_ADMIN_USER', ND_ADMIN_USER)
     ND_ADMIN_PASS    = os.environ.get('ND_ADMIN_PASS', ND_ADMIN_PASS)
     MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', MAX_UPLOAD_BYTES // 1024 // 1024)) * 1024 * 1024
-
-
-# ── Parche para redirect con params ──────────────────────────────────────────
-import urllib.parse
 
 
 if __name__ == '__main__':
