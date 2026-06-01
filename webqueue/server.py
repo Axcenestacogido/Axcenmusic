@@ -14,7 +14,7 @@ import subprocess
 import html
 import urllib.request
 from pathlib import Path
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, unquote_plus
 from datetime import datetime
 
@@ -561,8 +561,21 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'error': f'Archivo demasiado grande (máx {MAX_UPLOAD_BYTES//1024//1024} MB)'}, 413)
             return
 
-        body   = self.rfile.read(length)
-        fields, files = _parse_multipart(content_type, body)
+        # Leer en chunks para no bloquear el socket en subidas grandes
+        body = bytearray()
+        remaining = length
+        while remaining > 0:
+            chunk = self.rfile.read(min(65536, remaining))
+            if not chunk:
+                break
+            body.extend(chunk)
+            remaining -= len(chunk)
+
+        try:
+            fields, files = _parse_multipart(content_type, bytes(body))
+        except Exception as e:
+            self._json({'ok': 0, 'errors': [f'Error al procesar el archivo: {e}']}, 400)
+            return
         subfolder = (fields.get('subfolder') or 'Subidas').strip()
         dest = os.path.join(MUSIC_DIR, subfolder)
         os.makedirs(dest, exist_ok=True)
@@ -647,7 +660,7 @@ if __name__ == '__main__':
     print(f'  iPhone (Tailscale): http://pimusic:{PORT}')
     if not ND_ADMIN_USER:
         print(f'  [AVISO] ND_ADMIN_USER no configurado — botón de escaneo desactivado')
-    server = HTTPServer(('0.0.0.0', PORT), Handler)
+    server = ThreadingHTTPServer(('0.0.0.0', PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
