@@ -63,25 +63,41 @@ fetch_lyrics() {
   album=$(   ffprobe -v quiet -show_entries format_tags=album   -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null | head -1 || echo "")
   duration=$(ffprobe -v quiet -show_entries format=duration     -of default=noprint_wrappers=1:nokey=1 "$file" 2>/dev/null | cut -d. -f1 2>/dev/null || echo "0")
 
-  if [[ -z "$title" || -z "$artist" ]]; then
-    missing "$(basename "$file")  (sin tags título/artista — no se puede buscar)"
+  if [[ -z "$title" ]]; then
+    missing "$(basename "$file")  (sin tag de título — no se puede buscar)"
     MISSING=$((MISSING + 1))
     return
   fi
 
   # Construir URL de la API
-  local api_url
-  api_url="https://lrclib.net/api/get"
-  api_url+="?artist_name=$(urlencode "$artist")"
-  api_url+="&track_name=$(urlencode "$title")"
-  api_url+="&album_name=$(urlencode "$album")"
-  api_url+="&duration=${duration}"
+  local api_url response http_code body
+  if [[ -n "$artist" ]]; then
+    # Búsqueda exacta con artista + título + duración
+    api_url="https://lrclib.net/api/get"
+    api_url+="?artist_name=$(urlencode "$artist")"
+    api_url+="&track_name=$(urlencode "$title")"
+    api_url+="&album_name=$(urlencode "$album")"
+    api_url+="&duration=${duration}"
+    response=$(curl -s -w "\n%{http_code}" --max-time 10 "$api_url" 2>/dev/null || echo -e "\n000")
+    http_code=$(printf '%s' "$response" | tail -1)
+    body=$(printf '%s' "$response" | head -n -1)
+  fi
 
-  # Consultar lrclib.net
-  local response http_code body
-  response=$(curl -s -w "\n%{http_code}" --max-time 10 "$api_url" 2>/dev/null || echo -e "\n000")
-  http_code=$(printf '%s' "$response" | tail -1)
-  body=$(printf '%s' "$response" | head -n -1)
+  # Si no hay artista o no se encontró, buscar solo por título
+  if [[ -z "$artist" || "$http_code" == "404" || "$http_code" == "000" ]]; then
+    api_url="https://lrclib.net/api/search?track_name=$(urlencode "$title")"
+    response=$(curl -s -w "\n%{http_code}" --max-time 10 "$api_url" 2>/dev/null || echo -e "\n000")
+    http_code=$(printf '%s' "$response" | tail -1)
+    # /api/search devuelve un array — tomar el primer resultado
+    body=$(printf '%s' "$response" | head -n -1 | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(json.dumps(data[0]) if data else '{}')
+except Exception:
+    print('{}')
+")
+  fi
 
   if [[ "$http_code" != "200" ]]; then
     missing "$(basename "$file")  (no encontrada — código $http_code)"
