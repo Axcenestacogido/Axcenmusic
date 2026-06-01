@@ -34,6 +34,9 @@ ND_ADMIN_USER    = os.environ.get('ND_ADMIN_USER', '')
 ND_ADMIN_PASS    = os.environ.get('ND_ADMIN_PASS', '')
 MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', '500')) * 1024 * 1024
 
+SPOTIFY_CLIENT_ID     = os.environ.get('SPOTIFY_CLIENT_ID', '')
+SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', '')
+
 AUDIO_EXTS = {'.mp3', '.flac', '.m4a', '.ogg', '.opus', '.wav', '.aac', '.wma', '.aiff', '.alac'}
 
 # ── Estado compartido ──────────────────────────────────────────────────────────
@@ -599,6 +602,111 @@ def _find_duplicates():
     return [v for v in groups.values() if len(v) >= 2]
 
 
+# ── Estadísticas de la biblioteca ─────────────────────────────────────────────
+def _get_library_stats():
+    songs = 0
+    artists_set = set()
+    albums_set  = set()
+    total_secs  = 0.0
+    total_bytes = 0
+    with_cover  = 0
+    with_lyrics = 0
+    for root, _, files in os.walk(MUSIC_DIR):
+        for fn in files:
+            ext = Path(fn).suffix.lower()
+            if ext not in AUDIO_EXTS:
+                continue
+            path = os.path.join(root, fn)
+            songs += 1
+            try: total_bytes += os.path.getsize(path)
+            except: pass
+            tags = _read_tags(path)
+            if tags.get('artist'): artists_set.add(tags['artist'])
+            if tags.get('album'):  albums_set.add(tags['album'])
+            try:
+                cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
+                       '-of', 'default=noprint_wrappers=1:nokey=1', path]
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                total_secs += float(r.stdout.strip() or 0)
+            except: pass
+            lrc = path[:-len(ext)] + '.lrc'
+            if os.path.exists(lrc): with_lyrics += 1
+            if _has_cover(path):    with_cover  += 1
+    h = int(total_secs // 3600)
+    m = int((total_secs % 3600) // 60)
+    return {
+        'songs':       songs,
+        'artists':     len(artists_set),
+        'albums':      len(albums_set),
+        'duration':    f'{h}h {m}m',
+        'size_gb':     round(total_bytes / 1_073_741_824, 2),
+        'with_cover':  with_cover,
+        'with_lyrics': with_lyrics,
+    }
+
+
+# ── Spotify ───────────────────────────────────────────────────────────────────
+def _spotify_tracks(url):
+    """Extrae las pistas de una playlist de Spotify. Devuelve lista de {title, artist}."""
+    m = re.search(r'playlist/([A-Za-z0-9]+)', url)
+    if not m:
+        raise RuntimeError('URL de playlist de Spotify no válida')
+    playlist_id = m.group(1)
+
+    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+        raise RuntimeError('Configura SPOTIFY_CLIENT_ID y SPOTIFY_CLIENT_SECRET en .env')
+
+    # Obtener token de acceso
+    credentials = base64.b64encode(f'{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}'.encode()).decode()
+    token_req = urllib.request.Request(
+        'https://accounts.spotify.com/api/token',
+        data=b'grant_type=client_credentials',
+        headers={
+            'Authorization': f'Basic {credentials}',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(token_req, timeout=10) as resp:
+            token_data = json.loads(resp.read())
+    except Exception as e:
+        raise RuntimeError(f'Error obteniendo token de Spotify: {e}')
+
+    access_token = token_data.get('access_token', '')
+    if not access_token:
+        raise RuntimeError('No se pudo obtener token de Spotify')
+
+    # Paginar tracks
+    tracks = []
+    api_url = (f'https://api.spotify.com/v1/playlists/{playlist_id}/tracks'
+               f'?limit=50&fields=next,items(track(name,artists(name),duration_ms))')
+    while api_url:
+        req = urllib.request.Request(
+            api_url,
+            headers={'Authorization': f'Bearer {access_token}'},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                page = json.loads(resp.read())
+        except Exception as e:
+            raise RuntimeError(f'Error leyendo playlist de Spotify: {e}')
+
+        for item in page.get('items', []):
+            track = item.get('track')
+            if not track:
+                continue
+            name = track.get('name', '')
+            artists = track.get('artists', [])
+            artist = artists[0].get('name', '') if artists else ''
+            if name:
+                tracks.append({'title': name, 'artist': artist})
+
+        api_url = page.get('next')
+
+    return tracks
+
+
 # ── HTML ───────────────────────────────────────────────────────────────────────
 def _badge(s):
     return {
@@ -813,6 +921,22 @@ def render_page(flash='', flash_ok=True):
 
   <!-- ── BUSCAR ── -->
   <div id="tab-search" class="tab-content">
+    <!-- Importar playlist de Spotify -->
+    <div class="card">
+      <div class="card-title">Importar playlist de Spotify</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="url" id="spotify-url" placeholder="https://open.spotify.com/playlist/…"
+               style="margin-bottom:0;flex:1" onkeydown="if(event.key==='Enter')importSpotify()">
+        <button class="btn-scan" onclick="importSpotify()" style="flex-shrink:0">&#8595; Importar</button>
+      </div>
+      <div id="spotify-status" class="muted"><!-- status here --></div>
+      <div id="spotify-list" style="margin-top:8px;font-size:.85rem"></div>
+      <p class="muted" style="margin-top:8px;font-size:.78rem">
+        Requiere <code>SPOTIFY_CLIENT_ID</code> y <code>SPOTIFY_CLIENT_SECRET</code> en .env
+        (<a href="https://developer.spotify.com/dashboard" style="color:#f59e0b" target="_blank">developer.spotify.com</a> &#8594; Create app, gratis).
+      </p>
+    </div>
+
     <div class="card">
       <div class="card-title">Buscar en YouTube</div>
       <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -860,8 +984,19 @@ def render_page(flash='', flash_ok=True):
         <span>Canciones en la biblioteca</span>
         <button class="btn-scan" onclick="loadLibrary()">↺ Recargar</button>
       </div>
+      <input type="search" id="lib-search" placeholder="Filtrar por título, artista o álbum…"
+             style="margin-bottom:10px" oninput="filterLibrary(this.value)">
       <div id="lib-loading" class="muted">Cargando…</div>
       <div id="lib-list"></div>
+    </div>
+
+    <!-- Estadísticas -->
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Estadísticas de la biblioteca</span>
+        <button class="btn-scan" onclick="loadStats()">📊 Calcular</button>
+      </div>
+      <div id="stats-wrap" class="muted">Pulsa Calcular (puede tardar unos segundos).</div>
     </div>
 
     <!-- Duplicados -->
@@ -917,6 +1052,27 @@ def render_page(flash='', flash_ok=True):
     </div>
   </div>
 
+  <!-- ── MINI PLAYER ── -->
+  <div id="player" style="display:none;position:fixed;bottom:0;left:0;right:0;
+    background:#1c1917;border-top:1px solid #3f3f46;padding:10px 16px;
+    z-index:200;align-items:center;gap:12px;max-width:860px;
+    margin:0 auto">
+    <img id="pl-cover" src="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;background:#3f3f46;flex-shrink:0">
+    <div style="flex:1;min-width:0">
+      <div id="pl-title" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.9rem"></div>
+      <div id="pl-artist" style="color:#71717a;font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+      <input type="range" id="pl-seek" value="0" min="0" max="100" step="0.1"
+             style="width:100%;accent-color:#f59e0b;cursor:pointer;margin-top:2px">
+    </div>
+    <button id="pl-btn" onclick="togglePlay()"
+      style="background:#f59e0b;color:#18181b;border:none;border-radius:50%;
+             width:40px;height:40px;font-size:1.1rem;cursor:pointer;flex-shrink:0">&#9654;</button>
+    <span id="pl-time" style="color:#71717a;font-size:.75rem;white-space:nowrap">0:00</span>
+    <button onclick="closePlayer()"
+      style="background:none;border:none;color:#71717a;font-size:1.1rem;cursor:pointer;flex-shrink:0">&#x2715;</button>
+    <audio id="pl-audio"></audio>
+  </div>
+
   <!-- ── HISTORIAL ── -->
   <div id="tab-history" class="tab-content">
     <div class="card">
@@ -933,9 +1089,10 @@ def render_page(flash='', flash_ok=True):
   // ── Tabs ──────────────────────────────────────────────────────────
   const TAB_NAMES = ['upload','search','library','history'];
   function switchTab(name) {{
-    document.querySelectorAll('.tab').forEach((t,i) =>
-      t.classList.toggle('active', TAB_NAMES[i] === name));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(function(t, i) {{
+      t.classList.toggle('active', TAB_NAMES[i] === name);
+    }});
+    document.querySelectorAll('.tab-content').forEach(function(c) {{ c.classList.remove('active'); }});
     document.getElementById('tab-' + name).classList.add('active');
     if (name === 'library' && !libLoaded) loadLibrary();
   }}
@@ -1069,6 +1226,33 @@ def render_page(flash='', flash_ok=True):
 
   renderNightQueue();
 
+  // ── Importar Spotify ──────────────────────────────────────────────
+  async function importSpotify() {{
+    const url = document.getElementById('spotify-url').value.trim();
+    if (!url) return;
+    const statusEl = document.getElementById('spotify-status');
+    const listEl   = document.getElementById('spotify-list');
+    statusEl.textContent = 'Contactando Spotify…';
+    listEl.innerHTML = '';
+    const fd = new FormData();
+    fd.append('url', url);
+    try {{
+      const r   = await fetch('/spotify', {{method:'POST', body: fd}});
+      const res = await r.json();
+      if (res.ok) {{
+        statusEl.textContent = res.count + ' canciones añadidas a la cola.';
+        listEl.innerHTML = res.tracks.map(function(t) {{
+          return '<div style="padding:3px 0;border-bottom:1px solid #3f3f46">'
+            + escHtml(t.artist) + ' — ' + escHtml(t.title) + '</div>';
+        }}).join('');
+      }} else {{
+        statusEl.textContent = 'Error: ' + (res.error || 'desconocido');
+      }}
+    }} catch(ex) {{
+      statusEl.textContent = 'Error de red.';
+    }}
+  }}
+
   // ── Biblioteca agrupada ───────────────────────────────────────────
   let libLoaded = false;
   async function loadLibrary() {{
@@ -1133,12 +1317,14 @@ def render_page(flash='', flash_ok=True):
         html2 += '<div id="' + alId + '">';
         for (let si = 0; si < slist.length; si++) {{
           const s = slist[si];
-          html2 += '<div class="song-row">'
+          const searchVal = escHtml((s.t + ' ' + s.ar + ' ' + s.al).toLowerCase());
+          html2 += '<div class="song-row" data-search="' + searchVal + '">'
                  + '<img src="/cover?p=' + encodeURIComponent(s.p) + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:4px;background:#3f3f46;flex-shrink:0" onerror="this.style.background=&quot;#3f3f46&quot;;this.src=&quot;&quot;">'
                  + '<div style="flex:1;min-width:0">'
                  + '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(s.t) + '</div>'
                  + '<div class="muted" style="font-size:.78rem">' + s.sz + '</div>'
                  + '</div>'
+                 + '<button class="btn-sm" style="padding:5px 8px" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" data-ar="' + escHtml(s.ar) + '" onclick="playSong(this.dataset.p,this.dataset.t,this.dataset.ar,this.dataset.p)">&#9654;</button>'
                  + '<button class="btn-sm" style="padding:5px 8px" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" data-ar="' + escHtml(s.ar) + '" data-al="' + escHtml(s.al) + '" data-ge="' + escHtml(s.ge) + '" onclick="openEdit(this.dataset.p,this.dataset.t,this.dataset.ar,this.dataset.al,this.dataset.ge)">&#9998;</button>'
                  + '<button class="btn-sm" style="padding:5px 8px;color:#f87171" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" onclick="deleteSong(this.dataset.p,this.dataset.t)">&#128465;</button>'
                  + '</div>';
@@ -1157,6 +1343,25 @@ def render_page(flash='', flash_ok=True):
     const hidden = el.style.display === 'none';
     el.style.display = hidden ? '' : 'none';
     if (icon) icon.style.transform = hidden ? '' : 'rotate(-90deg)';
+  }}
+
+  // ── Filtrar biblioteca ────────────────────────────────────────────
+  function filterLibrary(q) {{
+    q = q.toLowerCase();
+    document.querySelectorAll('.artist-section').forEach(function(sec) {{
+      let artistMatch = false;
+      sec.querySelectorAll('.album-section').forEach(function(alSec) {{
+        let albumMatch = false;
+        alSec.querySelectorAll('.song-row').forEach(function(row) {{
+          const match = !q || (row.dataset.search || '').includes(q);
+          row.style.display = match ? '' : 'none';
+          if (match) albumMatch = true;
+        }});
+        alSec.style.display = albumMatch ? '' : 'none';
+        if (albumMatch) artistMatch = true;
+      }});
+      sec.style.display = artistMatch ? '' : 'none';
+    }});
   }}
 
   // ── Duplicados ────────────────────────────────────────────────────
@@ -1193,6 +1398,37 @@ def render_page(flash='', flash_ok=True):
     }} catch(ex) {{
       statusEl.textContent = 'Error al buscar duplicados.';
     }}
+  }}
+
+  // ── Estadísticas ──────────────────────────────────────────────────
+  async function loadStats() {{
+    const el = document.getElementById('stats-wrap');
+    el.textContent = 'Calculando…';
+    try {{
+      const r = await fetch('/api/stats');
+      const s = await r.json();
+      const pct = function(n) {{ return s.songs ? Math.round(n / s.songs * 100) + '%' : '—'; }};
+      el.innerHTML =
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:4px">'
+        + stat('🎵', s.songs, 'canciones')
+        + stat('🎤', s.artists, 'artistas')
+        + stat('💿', s.albums, 'álbumes')
+        + stat('⏱', s.duration, '')
+        + stat('💾', s.size_gb + ' GB', '')
+        + stat('🖼', pct(s.with_cover), 'con portada')
+        + stat('📝', pct(s.with_lyrics), 'con letra')
+        + '</div>';
+    }} catch(ex) {{
+      el.textContent = 'Error al calcular estadísticas.';
+    }}
+  }}
+
+  function stat(icon, val, label) {{
+    return '<div style="background:#3f3f46;border-radius:8px;padding:10px;text-align:center">'
+      + '<div style="font-size:1.4rem">' + icon + '</div>'
+      + '<div style="font-weight:700;font-size:1.1rem;color:#f59e0b">' + val + '</div>'
+      + (label ? '<div class="muted" style="font-size:.72rem">' + escHtml(label) + '</div>' : '')
+      + '</div>';
   }}
 
   // ── Editar tags ───────────────────────────────────────────────────
@@ -1258,6 +1494,53 @@ def render_page(flash='', flash_ok=True):
       alert('Error de red');
     }}
   }}
+
+  // ── Mini player ───────────────────────────────────────────────────
+  const audio  = document.getElementById('pl-audio');
+  const player = document.getElementById('player');
+
+  function playSong(pathB64, title, artist, coverB64) {{
+    document.getElementById('pl-title').textContent = title || '';
+    document.getElementById('pl-artist').textContent = artist || '';
+    document.getElementById('pl-cover').src = '/cover?p=' + encodeURIComponent(coverB64 || pathB64);
+    audio.src = '/stream?p=' + encodeURIComponent(pathB64);
+    player.style.display = 'flex';
+    audio.play();
+    document.getElementById('pl-btn').textContent = '⏸';
+    document.body.style.paddingBottom = '80px';
+  }}
+
+  function togglePlay() {{
+    if (audio.paused) {{
+      audio.play();
+      document.getElementById('pl-btn').textContent = '⏸';
+    }} else {{
+      audio.pause();
+      document.getElementById('pl-btn').textContent = '▶';
+    }}
+  }}
+
+  function closePlayer() {{
+    audio.pause();
+    player.style.display = 'none';
+    document.body.style.paddingBottom = '';
+  }}
+
+  audio.addEventListener('timeupdate', function() {{
+    if (!audio.duration) return;
+    document.getElementById('pl-seek').value = (audio.currentTime / audio.duration) * 100;
+    const m = Math.floor(audio.currentTime / 60);
+    const s = Math.floor(audio.currentTime % 60).toString().padStart(2, '0');
+    document.getElementById('pl-time').textContent = m + ':' + s;
+  }});
+
+  audio.addEventListener('ended', function() {{
+    document.getElementById('pl-btn').textContent = '▶';
+  }});
+
+  document.getElementById('pl-seek').addEventListener('input', function() {{
+    if (audio.duration) audio.currentTime = (this.value / 100) * audio.duration;
+  }});
 
   // ── Drag & drop ──────────────────────────────────────────────────
   const dz = document.getElementById('dropzone');
@@ -1394,10 +1677,14 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == '/api/nightqueue':
             with night_lock:
                 self._json(list(night_queue))
+        elif parsed.path == '/api/stats':
+            self._json(_get_library_stats())
         elif parsed.path == '/events':
             self._handle_sse()
         elif parsed.path == '/cover':
             self._handle_cover(qs)
+        elif parsed.path == '/stream':
+            self._handle_stream(qs)
         else:
             flash = unquote_plus(qs.get('flash', [''])[0])
             ok    = qs.get('ok', ['1'])[0] == '1'
@@ -1420,6 +1707,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_schedule()
         elif path == '/unschedule':
             self._handle_unschedule()
+        elif path == '/spotify':
+            self._handle_spotify()
         else:
             self._html('<p>Not found</p>', 404)
 
@@ -1507,6 +1796,67 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'max-age=3600')
         self.end_headers()
         self.wfile.write(data)
+
+    def _handle_stream(self, qs):
+        """Sirve un archivo de audio con soporte de Range (HTTP 206)."""
+        MIME_MAP = {
+            '.mp3':  'audio/mpeg',
+            '.flac': 'audio/flac',
+            '.m4a':  'audio/mp4',
+            '.ogg':  'audio/ogg',
+            '.opus': 'audio/ogg',
+            '.wav':  'audio/wav',
+            '.aac':  'audio/aac',
+        }
+        b64  = unquote_plus(qs.get('p', [''])[0])
+        path = _safe_path(b64)
+        if not path or not os.path.isfile(path):
+            self.send_response(404); self.end_headers(); return
+
+        ext       = Path(path).suffix.lower()
+        mime      = MIME_MAP.get(ext, 'application/octet-stream')
+        file_size = os.path.getsize(path)
+
+        range_hdr = self.headers.get('Range', '')
+        try:
+            if range_hdr:
+                m = re.match(r'bytes=(\d*)-(\d*)', range_hdr)
+                if m:
+                    start = int(m.group(1)) if m.group(1) else 0
+                    end   = int(m.group(2)) if m.group(2) else file_size - 1
+                else:
+                    start, end = 0, file_size - 1
+                end = min(end, file_size - 1)
+                length = end - start + 1
+                self.send_response(206)
+                self.send_header('Content-Type', mime)
+                self.send_header('Content-Length', length)
+                self.send_header('Content-Range', f'bytes {start}-{end}/{file_size}')
+                self.send_header('Accept-Ranges', 'bytes')
+                self.end_headers()
+                with open(path, 'rb') as fh:
+                    fh.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = fh.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+            else:
+                self.send_response(200)
+                self.send_header('Content-Type', mime)
+                self.send_header('Content-Length', file_size)
+                self.send_header('Accept-Ranges', 'bytes')
+                self.end_headers()
+                with open(path, 'rb') as fh:
+                    while True:
+                        chunk = fh.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
 
     def _handle_sse(self):
         """Server-Sent Events: envía estado cada segundo."""
@@ -1713,15 +2063,70 @@ class Handler(BaseHTTPRequestHandler):
 
         url = params.get('url', '').strip()
         with night_lock:
-            before = len(night_queue)
             night_queue[:] = [j for j in night_queue if j['url'] != url]
             q = list(night_queue)
         self._json({'ok': True, 'queue': q})
+
+    def _handle_spotify(self):
+        """Importa una playlist de Spotify y encola las descargas."""
+        content_type = self.headers.get('Content-Type', '')
+        length       = int(self.headers.get('Content-Length', 0))
+        body         = self.rfile.read(length)
+
+        if 'multipart' in content_type:
+            m = re.search(r'boundary=([^\s;]+)', content_type)
+            params = {}
+            if m:
+                boundary = ('--' + m.group(1).strip('"')).encode()
+                for part in body.split(boundary)[1:]:
+                    if part.startswith(b'--'):
+                        continue
+                    if part.startswith(b'\r\n'):
+                        part = part[2:]
+                    if b'\r\n\r\n' not in part:
+                        continue
+                    hdr, val = part.split(b'\r\n\r\n', 1)
+                    nm = re.search(rb'name="([^"]*)"', hdr)
+                    if nm:
+                        params[nm.group(1).decode()] = val.strip().rstrip(b'\r\n').decode('utf-8', errors='replace')
+        else:
+            params = {k: unquote_plus(v) for k, v in
+                      (p.split('=', 1) for p in body.decode('utf-8', errors='replace').split('&') if '=' in p)}
+
+        url = params.get('url', '').strip()
+        if not url:
+            self._json({'ok': False, 'error': 'URL vacía'})
+            return
+
+        try:
+            tracks = _spotify_tracks(url)
+        except Exception as e:
+            self._json({'ok': False, 'error': str(e)})
+            return
+
+        dest = os.path.join(MUSIC_DIR, 'Descargas')
+        for track in tracks:
+            artist = track.get('artist', '')
+            title  = track.get('title', '')
+            search = f'ytsearch1:{artist} {title}'.strip()
+            job = {
+                'url':      search,
+                'dest':     dest,
+                'status':   'queued',
+                'started':  '',
+                'finished': '',
+                'log':      [],
+                'added':    datetime.now().strftime('%H:%M:%S'),
+            }
+            download_queue.put(job)
+
+        self._json({'ok': True, 'count': len(tracks), 'tracks': tracks})
 
 
 # ── Bootstrap .env ────────────────────────────────────────────────────────────
 def _load_env():
     global PORT, MUSIC_DIR, NTFY_TOPIC, ND_URL, ND_ADMIN_USER, ND_ADMIN_PASS, MAX_UPLOAD_BYTES
+    global SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
     env_path = Path(__file__).parent.parent / '.env'
     if not env_path.exists():
         return
@@ -1730,13 +2135,15 @@ def _load_env():
         if line and not line.startswith('#') and '=' in line:
             k, v = line.split('=', 1)
             os.environ.setdefault(k.strip(), v.strip())
-    PORT             = int(os.environ.get('WEBQUEUE_PORT', PORT))
-    MUSIC_DIR        = os.environ.get('MUSIC_DIR', MUSIC_DIR)
-    NTFY_TOPIC       = os.environ.get('NTFY_TOPIC', NTFY_TOPIC)
-    ND_URL           = os.environ.get('ND_URL', ND_URL)
-    ND_ADMIN_USER    = os.environ.get('ND_ADMIN_USER', ND_ADMIN_USER)
-    ND_ADMIN_PASS    = os.environ.get('ND_ADMIN_PASS', ND_ADMIN_PASS)
-    MAX_UPLOAD_BYTES = int(os.environ.get('MAX_UPLOAD_MB', MAX_UPLOAD_BYTES // 1024 // 1024)) * 1024 * 1024
+    PORT                  = int(os.environ.get('WEBQUEUE_PORT', PORT))
+    MUSIC_DIR             = os.environ.get('MUSIC_DIR', MUSIC_DIR)
+    NTFY_TOPIC            = os.environ.get('NTFY_TOPIC', NTFY_TOPIC)
+    ND_URL                = os.environ.get('ND_URL', ND_URL)
+    ND_ADMIN_USER         = os.environ.get('ND_ADMIN_USER', ND_ADMIN_USER)
+    ND_ADMIN_PASS         = os.environ.get('ND_ADMIN_PASS', ND_ADMIN_PASS)
+    MAX_UPLOAD_BYTES      = int(os.environ.get('MAX_UPLOAD_MB', MAX_UPLOAD_BYTES // 1024 // 1024)) * 1024 * 1024
+    SPOTIFY_CLIENT_ID     = os.environ.get('SPOTIFY_CLIENT_ID', SPOTIFY_CLIENT_ID)
+    SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', SPOTIFY_CLIENT_SECRET)
 
 
 if __name__ == '__main__':
