@@ -578,7 +578,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         subfolder = (fields.get('subfolder') or 'Subidas').strip()
         dest = os.path.join(MUSIC_DIR, subfolder)
-        os.makedirs(dest, exist_ok=True)
+
+        try:
+            os.makedirs(dest, exist_ok=True)
+        except PermissionError:
+            self._json({'ok': 0, 'errors': [
+                f'Sin permisos de escritura en {dest}. '
+                f'Ejecuta en la Pi: sudo chown -R pi:pi {MUSIC_DIR}'
+            ]}, 403)
+            return
 
         ok_count = 0
         errors   = []
