@@ -3,6 +3,7 @@
 Axcenmusic — Interfaz web
 - Subir archivos de música directamente desde el navegador
 - Descargar desde YouTube / Bandcamp / SoundCloud via yt-dlp
+- Buscar en YouTube y descargar resultados
 - Disparar escaneo de biblioteca en Navidrome
 Accesible solo via Tailscale: http://pimusic:8888
 """
@@ -16,6 +17,7 @@ import queue
 import threading
 import subprocess
 import html
+import time
 import urllib.request
 import urllib.parse
 from pathlib import Path
@@ -41,6 +43,10 @@ uploads        = []   # archivos subidos directamente
 current_job    = None
 current_log    = []
 state_lock     = threading.Lock()
+
+# ── Cola nocturna ──────────────────────────────────────────────────────────────
+night_queue = []
+night_lock  = threading.Lock()
 
 
 # ── Notificación ntfy ─────────────────────────────────────────────────────────
@@ -113,6 +119,31 @@ def download_worker():
 
 
 threading.Thread(target=download_worker, daemon=True).start()
+
+
+# ── Worker nocturno ────────────────────────────────────────────────────────────
+def _night_worker():
+    """Espera hasta las 02:00 cada día y despacha la cola nocturna."""
+    while True:
+        now = datetime.now()
+        # Calcular segundos hasta las 02:00
+        target_hour = 2
+        seconds_until = ((target_hour - now.hour - 1) * 3600
+                         + (60 - now.minute - 1) * 60
+                         + (60 - now.second)) % 86400
+        if seconds_until == 0:
+            seconds_until = 86400
+        time.sleep(seconds_until)
+        with night_lock:
+            jobs = list(night_queue)
+            night_queue.clear()
+        for job in jobs:
+            download_queue.put(job)
+        if jobs:
+            _notify(f'Cola nocturna: {len(jobs)} descarga(s) iniciadas')
+
+
+threading.Thread(target=_night_worker, daemon=True).start()
 
 
 # ── Streaming multipart/form-data → disco ────────────────────────────────────
@@ -297,8 +328,46 @@ def _convert_to_mp3(file_path):
         pass
     return file_path  # devuelve el original si falla
 
+
+# ── Portada automática ────────────────────────────────────────────────────────
+def _fetch_cover_art(artist, title):
+    """Descarga portada de iTunes API. Devuelve bytes o None."""
+    try:
+        term = urllib.parse.quote(f'{artist} {title}')
+        url  = f'https://itunes.apple.com/search?term={term}&entity=song&limit=1&media=music'
+        with urllib.request.urlopen(url, timeout=10) as r:
+            data = json.loads(r.read())
+        results = data.get('results', [])
+        if not results:
+            return None
+        artwork_url = results[0].get('artworkUrl100', '')
+        if not artwork_url:
+            return None
+        artwork_url = artwork_url.replace('100x100bb', '600x600bb')
+        with urllib.request.urlopen(artwork_url, timeout=10) as r:
+            return r.read()
+    except Exception:
+        return None
+
+
+def _has_cover(file_path):
+    """Devuelve True si el archivo ya tiene portada embebida."""
+    try:
+        cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+               '-show_streams', file_path]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        streams = json.loads(r.stdout).get('streams', [])
+        for s in streams:
+            codec_type = s.get('codec_type', '')
+            if codec_type in ('video', 'attachment'):
+                return True
+        return False
+    except Exception:
+        return False
+
+
 def _post_upload(folder):
-    """Convierte a MP3, descarga letras y lanza escaneo."""
+    """Convierte a MP3, descarga portadas, letras y lanza escaneo."""
     # 1. Convertir todos los no-MP3 de la carpeta
     for root, _, files in os.walk(folder):
         for fn in files:
@@ -306,7 +375,24 @@ def _post_upload(folder):
             if ext in AUDIO_EXTS and ext != '.mp3':
                 _convert_to_mp3(os.path.join(root, fn))
 
-    # 2. Letras
+    # 2. Portada automática para MP3 sin portada
+    for root, _, files in os.walk(folder):
+        for fn in sorted(files):
+            if Path(fn).suffix.lower() != '.mp3':
+                continue
+            fp = os.path.join(root, fn)
+            if _has_cover(fp):
+                continue
+            tags = _read_tags(fp)
+            artist = tags.get('artist', '')
+            title  = tags.get('title', Path(fn).stem)
+            if not artist and not title:
+                continue
+            cover = _fetch_cover_art(artist, title)
+            if cover:
+                _write_tags(fp, None, None, None, None, cover)
+
+    # 3. Letras
     script = Path(__file__).parent.parent / 'scripts' / 'lyrics.sh'
     if script.exists():
         try:
@@ -314,7 +400,7 @@ def _post_upload(folder):
         except Exception:
             pass
 
-    # 3. Escaneo de Navidrome
+    # 4. Escaneo de Navidrome
     _trigger_scan()
 
 
@@ -452,6 +538,67 @@ def _write_tags(file_path, title, artist, album, genre=None, cover_data=None):
             except: pass
 
 
+# ── Búsqueda YouTube ──────────────────────────────────────────────────────────
+def _yt_search(query):
+    """Busca en YouTube vía yt-dlp. Devuelve lista de dicts."""
+    cmd = [
+        'yt-dlp',
+        f'ytsearch8:{query}',
+        '--dump-json', '--skip-download', '--no-warnings',
+    ]
+    results = []
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                vid_id = item.get('id', '')
+                results.append({
+                    'id':              vid_id,
+                    'title':           item.get('title', ''),
+                    'uploader':        item.get('uploader', item.get('channel', '')),
+                    'duration_string': item.get('duration_string', ''),
+                    'url':             f'https://youtube.com/watch?v={vid_id}',
+                })
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return results
+
+
+# ── Duplicados ────────────────────────────────────────────────────────────────
+def _find_duplicates():
+    """Agrupa archivos con mismo título+artista (normalizado). Devuelve grupos con 2+ archivos."""
+    groups = {}
+    for root, _, files in os.walk(MUSIC_DIR):
+        for fn in sorted(files):
+            if Path(fn).suffix.lower() not in AUDIO_EXTS:
+                continue
+            path = os.path.join(root, fn)
+            try:
+                tags   = _read_tags(path)
+                title  = tags.get('title', Path(fn).stem).lower().strip()
+                artist = tags.get('artist', '').lower().strip()
+                key    = f'{artist}||{title}'
+                if key not in groups:
+                    groups[key] = []
+                groups[key].append({
+                    'p':  base64.b64encode(path.encode()).decode(),
+                    'f':  fn,
+                    'r':  os.path.relpath(path, MUSIC_DIR),
+                    't':  tags.get('title', Path(fn).stem),
+                    'ar': tags.get('artist', ''),
+                    'sz': f'{os.path.getsize(path) / 1048576:.1f} MB',
+                })
+            except Exception:
+                pass
+    return [v for v in groups.values() if len(v) >= 2]
+
+
 # ── HTML ───────────────────────────────────────────────────────────────────────
 def _badge(s):
     return {
@@ -470,17 +617,8 @@ def render_page(flash='', flash_ok=True):
         ups    = list(uploads)
         q_size = download_queue.qsize()
 
-    # Descarga activa
-    active_html = ''
-    if job:
-        log_text = html.escape('\n'.join(log[-25:]))
-        active_html = f'''
-        <div class="card">
-          <div class="card-title">⟳ Descargando ahora</div>
-          <p><b>URL:</b> {html.escape(job["url"][:80])}</p>
-          <p><b>Destino:</b> {html.escape(job.get("dest","").replace(MUSIC_DIR,"…"))}</p>
-          <pre class="logbox">{log_text}</pre>
-        </div>'''
+    with night_lock:
+        nq_snap = list(night_queue)
 
     # Historial descargas
     dl_rows = ''
@@ -521,6 +659,9 @@ def render_page(flash='', flash_ok=True):
     can_scan_note = '' if (ND_ADMIN_USER and ND_ADMIN_PASS) else \
         '<p class="muted" style="margin-top:6px">Añade ND_ADMIN_USER y ND_ADMIN_PASS en .env para activar el botón de escaneo.</p>'
 
+    # Noche queue initial JSON for JS
+    nq_json = json.dumps(nq_snap)
+
     return f'''<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -537,10 +678,10 @@ def render_page(flash='', flash_ok=True):
     .card-title{{color:#a1a1aa;font-size:.9rem;font-weight:600;
                  text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}}
     label{{display:block;color:#a1a1aa;font-size:.85rem;margin-bottom:4px}}
-    input[type=url],input[type=text]{{
+    input[type=url],input[type=text],input[type=search]{{
       background:#3f3f46;border:1px solid #52525b;color:#e4e4e7;
       border-radius:8px;padding:9px 12px;width:100%;font-size:.95rem;margin-bottom:10px}}
-    input[type=url]:focus,input[type=text]:focus{{outline:none;border-color:#f59e0b}}
+    input[type=url]:focus,input[type=text]:focus,input[type=search]:focus{{outline:none;border-color:#f59e0b}}
     .btn{{background:#f59e0b;color:#18181b;border:none;border-radius:8px;
           padding:11px 22px;font-size:1rem;font-weight:700;cursor:pointer;
           width:100%;margin-top:4px}}
@@ -548,6 +689,15 @@ def render_page(flash='', flash_ok=True):
     .btn-scan{{background:#3f3f46;color:#e4e4e7;border:none;border-radius:8px;
                padding:9px 18px;font-size:.9rem;font-weight:600;cursor:pointer}}
     .btn-scan:hover{{background:#52525b}}
+    .btn-sm{{background:#3f3f46;color:#e4e4e7;border:none;border-radius:6px;
+             padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer}}
+    .btn-sm:hover{{background:#52525b}}
+    .btn-night{{background:#312e81;color:#c7d2fe;border:none;border-radius:6px;
+                padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer}}
+    .btn-night:hover{{background:#3730a3}}
+    .btn-dl{{background:#14532d;color:#4ade80;border:none;border-radius:6px;
+             padding:5px 10px;font-size:.8rem;font-weight:600;cursor:pointer}}
+    .btn-dl:hover{{background:#166534}}
     .badge{{border-radius:20px;padding:2px 10px;font-size:.78rem;font-weight:600}}
     .badge.green{{background:#14532d;color:#4ade80}}
     .badge.red{{background:#450a0a;color:#f87171}}
@@ -586,6 +736,31 @@ def render_page(flash='', flash_ok=True):
     .tab.active{{background:#f59e0b;color:#18181b}}
     .tab-content{{display:none}}
     .tab-content.active{{display:block}}
+    /* Search results */
+    .sr-item{{display:flex;align-items:center;gap:10px;padding:10px 0;
+              border-bottom:1px solid #3f3f46}}
+    .sr-info{{flex:1;min-width:0}}
+    .sr-title{{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+    .sr-meta{{color:#71717a;font-size:.8rem}}
+    .sr-btns{{display:flex;gap:6px;flex-shrink:0}}
+    /* Library grouped */
+    .artist-section{{margin-bottom:8px;border-radius:8px;overflow:hidden}}
+    .artist-header{{background:#3f3f46;padding:10px 14px;cursor:pointer;
+                    display:flex;align-items:center;gap:8px;font-weight:700}}
+    .artist-header:hover{{background:#52525b}}
+    .album-section{{margin:0;border-radius:0}}
+    .album-header{{background:#2d2d30;padding:8px 14px 8px 28px;cursor:pointer;
+                   display:flex;align-items:center;gap:8px;color:#a1a1aa;font-weight:600}}
+    .album-header:hover{{background:#363639}}
+    .song-row{{display:flex;align-items:center;gap:10px;padding:8px 14px 8px 42px;
+               border-bottom:1px solid #3f3f46}}
+    .song-row:last-child{{border-bottom:none}}
+    .collapse-icon{{transition:transform .2s;display:inline-block}}
+    .collapsed .collapse-icon{{transform:rotate(-90deg)}}
+    /* Night queue */
+    .nq-item{{display:flex;align-items:center;gap:8px;padding:6px 0;
+              border-bottom:1px solid #3f3f46;font-size:.85rem}}
+    .nq-url{{flex:1;word-break:break-all;color:#c7d2fe}}
   </style>
 </head>
 <body>
@@ -596,7 +771,7 @@ def render_page(flash='', flash_ok=True):
 
   <div class="tabs">
     <div class="tab active" onclick="switchTab('upload')">Subir</div>
-    <div class="tab" onclick="switchTab('download')">Descargar</div>
+    <div class="tab" onclick="switchTab('search')">Buscar</div>
     <div class="tab" onclick="switchTab('library')">Biblioteca</div>
     <div class="tab" onclick="switchTab('history')">Historial</div>
   </div>
@@ -636,8 +811,29 @@ def render_page(flash='', flash_ok=True):
     </div>
   </div>
 
-  <!-- ── DESCARGAR URL ── -->
-  <div id="tab-download" class="tab-content">
+  <!-- ── BUSCAR ── -->
+  <div id="tab-search" class="tab-content">
+    <div class="card">
+      <div class="card-title">Buscar en YouTube</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="search" id="yt-query" placeholder="Artista, canción…" style="margin-bottom:0;flex:1"
+               onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn-scan" onclick="doSearch()" style="flex-shrink:0">🔍 Buscar</button>
+      </div>
+      <div id="search-status" class="muted"></div>
+      <div id="search-results"></div>
+    </div>
+
+    <!-- Cola nocturna -->
+    <div class="card" id="night-card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>🌙 Cola nocturna (<span id="nq-count">0</span>)</span>
+        <span class="muted" style="font-size:.78rem">Se descarga a las 02:00</span>
+      </div>
+      <div id="nq-list"><p class="muted">Sin elementos.</p></div>
+    </div>
+
+    <!-- Descarga manual URL -->
     <div class="card">
       <div class="card-title">Descargar desde URL</div>
       <form method="post" action="/add">
@@ -647,9 +843,14 @@ def render_page(flash='', flash_ok=True):
         <input type="text" name="subfolder" value="Descargas" placeholder="Artista/Album">
         <button type="submit" class="btn">Añadir a la cola</button>
       </form>
-      <p class="muted" style="margin-top:8px">En cola: <b>{q_size}</b></p>
+      <p class="muted" style="margin-top:8px">En cola: <b id="q-size-badge">{q_size}</b></p>
     </div>
-    {active_html}
+
+    <!-- Log SSE -->
+    <div class="card">
+      <div class="card-title">Log de descarga en tiempo real</div>
+      <pre class="logbox" id="sse-log">Esperando actividad…</pre>
+    </div>
   </div>
 
   <!-- ── BIBLIOTECA ── -->
@@ -661,6 +862,16 @@ def render_page(flash='', flash_ok=True):
       </div>
       <div id="lib-loading" class="muted">Cargando…</div>
       <div id="lib-list"></div>
+    </div>
+
+    <!-- Duplicados -->
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Duplicados</span>
+        <button class="btn-scan" onclick="findDuplicates()">🔍 Buscar duplicados</button>
+      </div>
+      <div id="dup-status" class="muted">Pulsa el botón para buscar.</div>
+      <div id="dup-list"></div>
     </div>
   </div>
 
@@ -720,7 +931,7 @@ def render_page(flash='', flash_ok=True):
 
   <script>
   // ── Tabs ──────────────────────────────────────────────────────────
-  const TAB_NAMES = ['upload','download','library','history'];
+  const TAB_NAMES = ['upload','search','library','history'];
   function switchTab(name) {{
     document.querySelectorAll('.tab').forEach((t,i) =>
       t.classList.toggle('active', TAB_NAMES[i] === name));
@@ -729,9 +940,139 @@ def render_page(flash='', flash_ok=True):
     if (name === 'library') loadLibrary();
   }}
 
-  // ── Biblioteca ────────────────────────────────────────────────────
+  // ── SSE ───────────────────────────────────────────────────────────
+  (function() {{
+    const logEl = document.getElementById('sse-log');
+    const qEl   = document.getElementById('q-size-badge');
+    let logLines = [];
+    const es = new EventSource('/events');
+    es.onmessage = function(e) {{
+      let d;
+      try {{ d = JSON.parse(e.data); }} catch(ex) {{ return; }}
+      if (d.q !== undefined && qEl) qEl.textContent = d.q;
+      if (d.log && d.log.length) {{
+        for (let i = 0; i < d.log.length; i++) {{
+          logLines.push(d.log[i]);
+        }}
+        if (logLines.length > 60) logLines = logLines.slice(logLines.length - 60);
+        logEl.textContent = logLines.join('\\n');
+        logEl.scrollTop = logEl.scrollHeight;
+      }}
+      if (d.job && d.job.url) {{
+        logEl.textContent = '[Descargando] ' + d.job.url + '\\n' + logLines.join('\\n');
+        logEl.scrollTop = logEl.scrollHeight;
+      }}
+    }};
+    es.onerror = function() {{
+      setTimeout(function() {{
+        try {{ es.close(); }} catch(ex) {{}}
+      }}, 3000);
+    }};
+  }})();
+
+  // ── Búsqueda YouTube ──────────────────────────────────────────────
+  async function doSearch() {{
+    const q = document.getElementById('yt-query').value.trim();
+    if (!q) return;
+    const statusEl  = document.getElementById('search-status');
+    const resultsEl = document.getElementById('search-results');
+    statusEl.textContent  = 'Buscando…';
+    resultsEl.innerHTML   = '';
+    try {{
+      const r    = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const data = await r.json();
+      statusEl.textContent = data.length ? data.length + ' resultados' : 'Sin resultados.';
+      resultsEl.innerHTML  = data.map(function(item) {{
+        const safeTitle    = escHtml(item.title);
+        const safeUploader = escHtml(item.uploader);
+        const safeDur      = escHtml(item.duration_string);
+        const safeUrlAttr  = escHtml(item.url);
+        return '<div class="sr-item">'
+          + '<div class="sr-info">'
+          + '<div class="sr-title">' + safeTitle + '</div>'
+          + '<div class="sr-meta">' + safeUploader + ' &middot; ' + safeDur + '</div>'
+          + '</div>'
+          + '<div class="sr-btns">'
+          + '<button class="btn-dl" data-url="' + safeUrlAttr + '" onclick="addDownload(this.dataset.url)">&#8659; Descargar</button>'
+          + '<button class="btn-night" data-url="' + safeUrlAttr + '" onclick="addNight(this.dataset.url)">&#x1F319; Esta noche</button>'
+          + '</div>'
+          + '</div>';
+      }}).join('');
+    }} catch(ex) {{
+      statusEl.textContent = 'Error al buscar.';
+    }}
+  }}
+
+  async function addDownload(url) {{
+    const fd = new FormData();
+    fd.append('url', url);
+    fd.append('subfolder', 'Descargas');
+    try {{
+      await fetch('/add', {{method:'POST', body: fd}});
+      alert('Añadido a la cola: ' + url.slice(0,60));
+    }} catch(ex) {{
+      alert('Error de red');
+    }}
+  }}
+
+  // ── Cola nocturna ─────────────────────────────────────────────────
+  let nightItems = {nq_json};
+
+  function renderNightQueue() {{
+    const listEl  = document.getElementById('nq-list');
+    const countEl = document.getElementById('nq-count');
+    countEl.textContent = nightItems.length;
+    if (!nightItems.length) {{
+      listEl.innerHTML = '<p class="muted">Sin elementos.</p>';
+      return;
+    }}
+    listEl.innerHTML = nightItems.map(function(item, idx) {{
+      return '<div class="nq-item">'
+        + '<span class="nq-url">' + escHtml(item.url.slice(0,70)) + '</span>'
+        + '<button class="btn-sm" style="color:#f87171" onclick="removeNight(' + idx + ')">&#x2715;</button>'
+        + '</div>';
+    }}).join('');
+  }}
+
+  async function addNight(url) {{
+    const fd = new FormData();
+    fd.append('url', url);
+    fd.append('subfolder', 'Descargas');
+    try {{
+      const r   = await fetch('/schedule', {{method:'POST', body: fd}});
+      const res = await r.json();
+      if (res.ok) {{
+        nightItems = res.queue;
+        renderNightQueue();
+      }}
+    }} catch(ex) {{
+      alert('Error de red');
+    }}
+  }}
+
+  async function removeNight(idx) {{
+    const item = nightItems[idx];
+    if (!item) return;
+    const fd = new FormData();
+    fd.append('url', item.url);
+    try {{
+      const r   = await fetch('/unschedule', {{method:'POST', body: fd}});
+      const res = await r.json();
+      if (res.ok) {{
+        nightItems = res.queue;
+        renderNightQueue();
+      }}
+    }} catch(ex) {{
+      alert('Error de red');
+    }}
+  }}
+
+  renderNightQueue();
+
+  // ── Biblioteca agrupada ───────────────────────────────────────────
   async function loadLibrary() {{
     document.getElementById('lib-loading').textContent = 'Cargando…';
+    document.getElementById('lib-loading').style.display = '';
     document.getElementById('lib-list').innerHTML = '';
     let songs;
     try {{
@@ -746,33 +1087,106 @@ def render_page(flash='', flash_ok=True):
       document.getElementById('lib-list').innerHTML = '<p class="muted">Sin canciones todavía.</p>';
       return;
     }}
-    const rows = songs.map(s => `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;
-                  border-bottom:1px solid #3f3f46">
-        <img src="/cover?p=${{encodeURIComponent(s.p)}}" alt=""
-             style="width:44px;height:44px;object-fit:cover;border-radius:6px;
-                    background:#3f3f46;flex-shrink:0"
-             onerror="this.style.background='#3f3f46';this.src=''">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-            ${{escHtml(s.t)}}</div>
-          <div class="muted" style="font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-            ${{escHtml(s.ar || '—')}} · ${{escHtml(s.al || '—')}} · ${{s.sz}}</div>
-        </div>
-        <button class="btn-scan" style="padding:6px 10px;font-size:.8rem"
-                onclick='openEdit("${{s.p}}","${{escJs(s.t)}}","${{escJs(s.ar)}}","${{escJs(s.al)}}","${{escJs(s.ge)}}")'>
-          ✎
-        </button>
-        <button class="btn-scan" style="padding:6px 10px;font-size:.8rem;color:#f87171"
-                onclick='deleteSong("${{s.p}}","${{escJs(s.t)}}")'>
-          🗑
-        </button>
-      </div>`).join('');
-    document.getElementById('lib-list').innerHTML = rows;
+
+    // Agrupar por artista → album
+    const byArtist = {{}};
+    for (let i = 0; i < songs.length; i++) {{
+      const s  = songs[i];
+      const ar = s.ar || '(Sin artista)';
+      const al = s.al || '(Sin álbum)';
+      if (!byArtist[ar]) byArtist[ar] = {{}};
+      if (!byArtist[ar][al]) byArtist[ar][al] = [];
+      byArtist[ar][al].push(s);
+    }}
+
+    let html2 = '';
+    const artists = Object.keys(byArtist).sort();
+    for (let ai = 0; ai < artists.length; ai++) {{
+      const ar      = artists[ai];
+      const albums  = byArtist[ar];
+      const arId    = 'ar-' + ai;
+      const arCount = Object.values(albums).reduce(function(acc, a) {{ return acc + a.length; }}, 0);
+      html2 += '<div class="artist-section">';
+      html2 += '<div class="artist-header" data-sec="' + arId + '" onclick="toggleSection(this.dataset.sec)">'
+             + '<span class="collapse-icon" id="' + arId + '-icon">&#9660;</span>'
+             + '<span>' + escHtml(ar) + '</span>'
+             + '<span class="muted" style="font-size:.8rem;margin-left:auto">' + arCount + ' canciones</span>'
+             + '</div>';
+      html2 += '<div id="' + arId + '">';
+      const albumNames = Object.keys(albums).sort();
+      for (let li = 0; li < albumNames.length; li++) {{
+        const al    = albumNames[li];
+        const slist = albums[al];
+        const alId  = arId + '-al-' + li;
+        html2 += '<div class="album-section">';
+        html2 += '<div class="album-header" data-sec="' + alId + '" onclick="toggleSection(this.dataset.sec)">'
+               + '<span class="collapse-icon" id="' + alId + '-icon">&#9660;</span>'
+               + '<span>' + escHtml(al) + '</span>'
+               + '<span class="muted" style="font-size:.78rem;margin-left:auto">' + slist.length + '</span>'
+               + '</div>';
+        html2 += '<div id="' + alId + '">';
+        for (let si = 0; si < slist.length; si++) {{
+          const s = slist[si];
+          html2 += '<div class="song-row">'
+                 + '<img src="/cover?p=' + encodeURIComponent(s.p) + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:4px;background:#3f3f46;flex-shrink:0" onerror="this.style.background=&quot;#3f3f46&quot;;this.src=&quot;&quot;">'
+                 + '<div style="flex:1;min-width:0">'
+                 + '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(s.t) + '</div>'
+                 + '<div class="muted" style="font-size:.78rem">' + s.sz + '</div>'
+                 + '</div>'
+                 + '<button class="btn-sm" style="padding:5px 8px" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" data-ar="' + escHtml(s.ar) + '" data-al="' + escHtml(s.al) + '" data-ge="' + escHtml(s.ge) + '" onclick="openEdit(this.dataset.p,this.dataset.t,this.dataset.ar,this.dataset.al,this.dataset.ge)">&#9998;</button>'
+                 + '<button class="btn-sm" style="padding:5px 8px;color:#f87171" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" onclick="deleteSong(this.dataset.p,this.dataset.t)">&#128465;</button>'
+                 + '</div>';
+        }}
+        html2 += '</div></div>';
+      }}
+      html2 += '</div></div>';
+    }}
+    document.getElementById('lib-list').innerHTML = html2;
   }}
 
-  function escJs(s) {{
-    return (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  function toggleSection(id) {{
+    const el   = document.getElementById(id);
+    const icon = document.getElementById(id + '-icon');
+    if (!el) return;
+    const hidden = el.style.display === 'none';
+    el.style.display = hidden ? '' : 'none';
+    if (icon) icon.style.transform = hidden ? '' : 'rotate(-90deg)';
+  }}
+
+  // ── Duplicados ────────────────────────────────────────────────────
+  async function findDuplicates() {{
+    const statusEl = document.getElementById('dup-status');
+    const listEl   = document.getElementById('dup-list');
+    statusEl.textContent = 'Buscando duplicados…';
+    listEl.innerHTML     = '';
+    try {{
+      const r     = await fetch('/api/duplicates');
+      const groups = await r.json();
+      if (!groups.length) {{
+        statusEl.textContent = 'No se encontraron duplicados.';
+        return;
+      }}
+      statusEl.textContent = groups.length + ' grupo(s) con duplicados';
+      listEl.innerHTML = groups.map(function(group) {{
+        const rows = group.map(function(f) {{
+          return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #3f3f46">'
+            + '<div style="flex:1;min-width:0">'
+            + '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(f.t) + '</div>'
+            + '<div class="muted" style="font-size:.78rem">' + escHtml(f.r) + ' &middot; ' + f.sz + '</div>'
+            + '</div>'
+            + '<button class="btn-sm" style="color:#f87171" data-p="' + escHtml(f.p) + '" data-t="' + escHtml(f.t) + '" onclick="deleteSong(this.dataset.p,this.dataset.t)">&#128465;</button>'
+            + '</div>';
+        }}).join('');
+        return '<div style="background:#1e1e20;border-radius:8px;padding:10px;margin:8px 0">'
+          + '<div style="color:#fbbf24;font-size:.85rem;font-weight:600;margin-bottom:6px">'
+          + escHtml(group[0].ar || '(Sin artista)') + ' — ' + escHtml(group[0].t)
+          + '</div>'
+          + rows
+          + '</div>';
+      }}).join('');
+    }} catch(ex) {{
+      statusEl.textContent = 'Error al buscar duplicados.';
+    }}
   }}
 
   // ── Editar tags ───────────────────────────────────────────────────
@@ -797,7 +1211,7 @@ def render_page(flash='', flash_ok=True):
   function previewCover(input) {{
     if (!input.files[0]) return;
     const reader = new FileReader();
-    reader.onload = e => {{
+    reader.onload = function(e) {{
       document.getElementById('edit-cover-preview').src = e.target.result;
     }};
     reader.readAsDataURL(input.files[0]);
@@ -826,7 +1240,7 @@ def render_page(flash='', flash_ok=True):
 
   // ── Eliminar canción ─────────────────────────────────────────────
   async function deleteSong(pathB64, title) {{
-    if (!confirm('¿Eliminar "' + title + '"?\\nEsta acción no se puede deshacer.')) return;
+    if (!confirm('\\u00bfEliminar "' + title + '"?\\nEsta acci\\u00f3n no se puede deshacer.')) return;
     const fd = new FormData();
     fd.append('path', pathB64);
     try {{
@@ -841,9 +1255,9 @@ def render_page(flash='', flash_ok=True):
 
   // ── Drag & drop ──────────────────────────────────────────────────
   const dz = document.getElementById('dropzone');
-  dz.addEventListener('dragover', e => {{ e.preventDefault(); dz.classList.add('drag'); }});
-  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
-  dz.addEventListener('drop', e => {{
+  dz.addEventListener('dragover', function(e) {{ e.preventDefault(); dz.classList.add('drag'); }});
+  dz.addEventListener('dragleave', function() {{ dz.classList.remove('drag'); }});
+  dz.addEventListener('drop', function(e) {{
     e.preventDefault(); dz.classList.remove('drag');
     document.getElementById('file-input').files = e.dataTransfer.files;
     showFiles(e.dataTransfer.files);
@@ -861,7 +1275,8 @@ def render_page(flash='', flash_ok=True):
   function showFiles(files) {{
     const list = document.getElementById('file-list');
     list.innerHTML = '';
-    for (const f of files) {{
+    for (let i = 0; i < files.length; i++) {{
+      const f   = files[i];
       const div = document.createElement('div');
       div.className = 'file-item';
       div.innerHTML = '<span class="fname">' + escHtml(f.name) + '</span>'
@@ -871,7 +1286,7 @@ def render_page(flash='', flash_ok=True):
   }}
 
   function escHtml(s) {{
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }}
 
   // ── Upload ───────────────────────────────────────────────────────
@@ -882,7 +1297,7 @@ def render_page(flash='', flash_ok=True):
     const subfolder = document.getElementById('subfolder-upload').value || 'Subidas';
     const fd = new FormData();
     fd.append('subfolder', subfolder);
-    for (const f of input.files) fd.append('files', f);
+    for (let i = 0; i < input.files.length; i++) fd.append('files', input.files[i]);
 
     document.getElementById('progress-wrap').style.display = 'block';
     document.getElementById('btn-upload').disabled = true;
@@ -890,7 +1305,7 @@ def render_page(flash='', flash_ok=True):
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/upload');
 
-    xhr.upload.onprogress = e => {{
+    xhr.upload.onprogress = function(e) {{
       if (e.lengthComputable) {{
         const pct = Math.round(e.loaded / e.total * 100);
         document.getElementById('progress-bar').style.width = pct + '%';
@@ -899,7 +1314,7 @@ def render_page(flash='', flash_ok=True):
       }}
     }};
 
-    xhr.onload = () => {{
+    xhr.onload = function() {{
       document.getElementById('btn-upload').disabled = false;
       if (xhr.status === 200) {{
         const res = JSON.parse(xhr.responseText);
@@ -908,13 +1323,13 @@ def render_page(flash='', flash_ok=True):
         document.getElementById('progress-bar').style.width = '100%';
         document.getElementById('file-list').innerHTML = '';
         input.value = '';
-        setTimeout(() => location.reload(), 1500);
+        setTimeout(function() {{ location.reload(); }}, 1500);
       }} else {{
         document.getElementById('progress-label').textContent = 'Error: ' + xhr.responseText;
       }}
     }};
 
-    xhr.onerror = () => {{
+    xhr.onerror = function() {{
       document.getElementById('btn-upload').disabled = false;
       document.getElementById('progress-label').textContent = 'Error de red.';
     }};
@@ -940,7 +1355,6 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _json(self, obj, code=200):
-        import json
         data = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
@@ -960,6 +1374,19 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/library':
             self._json(_list_songs())
+        elif parsed.path == '/api/search':
+            q = unquote_plus(qs.get('q', [''])[0]).strip()
+            if not q:
+                self._json([])
+            else:
+                self._json(_yt_search(q))
+        elif parsed.path == '/api/duplicates':
+            self._json(_find_duplicates())
+        elif parsed.path == '/api/nightqueue':
+            with night_lock:
+                self._json(list(night_queue))
+        elif parsed.path == '/events':
+            self._handle_sse()
         elif parsed.path == '/cover':
             self._handle_cover(qs)
         else:
@@ -980,14 +1407,39 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_edit()
         elif path == '/delete':
             self._handle_delete()
+        elif path == '/schedule':
+            self._handle_schedule()
+        elif path == '/unschedule':
+            self._handle_unschedule()
         else:
             self._html('<p>Not found</p>', 404)
 
     def _handle_add(self):
+        content_type = self.headers.get('Content-Type', '')
         length = int(self.headers.get('Content-Length', 0))
-        body   = self.rfile.read(length).decode('utf-8')
-        params = {k: unquote_plus(v) for k, v in
-                  (p.split('=', 1) for p in body.split('&') if '=' in p)}
+        body   = self.rfile.read(length)
+
+        # Support both multipart/form-data and application/x-www-form-urlencoded
+        if 'multipart' in content_type:
+            m = re.search(r'boundary=([^\s;]+)', content_type)
+            params = {}
+            if m:
+                boundary = ('--' + m.group(1).strip('"')).encode()
+                for part in body.split(boundary)[1:]:
+                    if part.startswith(b'--'):
+                        continue
+                    if part.startswith(b'\r\n'):
+                        part = part[2:]
+                    if b'\r\n\r\n' not in part:
+                        continue
+                    hdr, val = part.split(b'\r\n\r\n', 1)
+                    nm = re.search(rb'name="([^"]*)"', hdr)
+                    if nm:
+                        params[nm.group(1).decode()] = val.strip().rstrip(b'\r\n').decode('utf-8', errors='replace')
+        else:
+            params = {k: unquote_plus(v) for k, v in
+                      (p.split('=', 1) for p in body.decode('utf-8', errors='replace').split('&') if '=' in p)}
+
         url       = params.get('url', '').strip()
         subfolder = (params.get('subfolder', '') or 'Descargas').strip()
         if not url:
@@ -999,7 +1451,12 @@ class Handler(BaseHTTPRequestHandler):
             'added': datetime.now().strftime('%H:%M:%S'),
         }
         download_queue.put(job)
-        self._redirect('/', f'Añadido a la cola: {url[:50]}')
+        # If request was JSON-like (from JS fetch), return JSON; else redirect
+        accept = self.headers.get('Accept', '')
+        if 'application/json' in accept:
+            self._json({'ok': True})
+        else:
+            self._redirect('/', f'Añadido a la cola: {url[:50]}')
 
     def _handle_upload(self):
         content_type = self.headers.get('Content-Type', '')
@@ -1041,6 +1498,38 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'max-age=3600')
         self.end_headers()
         self.wfile.write(data)
+
+    def _handle_sse(self):
+        """Server-Sent Events: envía estado cada segundo."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'keep-alive')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.end_headers()
+
+        last_log_len = 0
+        try:
+            while True:
+                with state_lock:
+                    job     = dict(current_job) if current_job else None
+                    log_now = list(current_log)
+                    q_size  = download_queue.qsize()
+
+                new_lines = log_now[last_log_len:]
+                last_log_len = len(log_now)
+
+                payload = json.dumps({
+                    'job': job,
+                    'log': new_lines,
+                    'q':   q_size,
+                })
+                msg = f'data: {payload}\n\n'
+                self.wfile.write(msg.encode('utf-8'))
+                self.wfile.flush()
+                time.sleep(1)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
 
     def _handle_edit(self):
         content_type = self.headers.get('Content-Type', '')
@@ -1141,6 +1630,84 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'ok': True})
         except Exception as e:
             self._json({'ok': False, 'error': str(e)})
+
+    def _handle_schedule(self):
+        """Añade una URL a la cola nocturna."""
+        content_type = self.headers.get('Content-Type', '')
+        length       = int(self.headers.get('Content-Length', 0))
+        body         = self.rfile.read(length)
+
+        if 'multipart' in content_type:
+            m = re.search(r'boundary=([^\s;]+)', content_type)
+            params = {}
+            if m:
+                boundary = ('--' + m.group(1).strip('"')).encode()
+                for part in body.split(boundary)[1:]:
+                    if part.startswith(b'--'):
+                        continue
+                    if part.startswith(b'\r\n'):
+                        part = part[2:]
+                    if b'\r\n\r\n' not in part:
+                        continue
+                    hdr, val = part.split(b'\r\n\r\n', 1)
+                    nm = re.search(rb'name="([^"]*)"', hdr)
+                    if nm:
+                        params[nm.group(1).decode()] = val.strip().rstrip(b'\r\n').decode('utf-8', errors='replace')
+        else:
+            params = {k: unquote_plus(v) for k, v in
+                      (p.split('=', 1) for p in body.decode('utf-8', errors='replace').split('&') if '=' in p)}
+
+        url       = params.get('url', '').strip()
+        subfolder = (params.get('subfolder', '') or 'Descargas').strip()
+        if not url:
+            self._json({'ok': False, 'error': 'URL vacía'})
+            return
+
+        job = {
+            'url':  url,
+            'dest': os.path.join(MUSIC_DIR, subfolder),
+            'status': 'scheduled',
+            'added':  datetime.now().strftime('%H:%M:%S'),
+        }
+        with night_lock:
+            # Evitar duplicados
+            if not any(j['url'] == url for j in night_queue):
+                night_queue.append(job)
+            q = list(night_queue)
+        self._json({'ok': True, 'queue': q})
+
+    def _handle_unschedule(self):
+        """Elimina una URL de la cola nocturna."""
+        content_type = self.headers.get('Content-Type', '')
+        length       = int(self.headers.get('Content-Length', 0))
+        body         = self.rfile.read(length)
+
+        if 'multipart' in content_type:
+            m = re.search(r'boundary=([^\s;]+)', content_type)
+            params = {}
+            if m:
+                boundary = ('--' + m.group(1).strip('"')).encode()
+                for part in body.split(boundary)[1:]:
+                    if part.startswith(b'--'):
+                        continue
+                    if part.startswith(b'\r\n'):
+                        part = part[2:]
+                    if b'\r\n\r\n' not in part:
+                        continue
+                    hdr, val = part.split(b'\r\n\r\n', 1)
+                    nm = re.search(rb'name="([^"]*)"', hdr)
+                    if nm:
+                        params[nm.group(1).decode()] = val.strip().rstrip(b'\r\n').decode('utf-8', errors='replace')
+        else:
+            params = {k: unquote_plus(v) for k, v in
+                      (p.split('=', 1) for p in body.decode('utf-8', errors='replace').split('&') if '=' in p)}
+
+        url = params.get('url', '').strip()
+        with night_lock:
+            before = len(night_queue)
+            night_queue[:] = [j for j in night_queue if j['url'] != url]
+            q = list(night_queue)
+        self._json({'ok': True, 'queue': q})
 
 
 # ── Bootstrap .env ────────────────────────────────────────────────────────────
