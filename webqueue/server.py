@@ -154,6 +154,17 @@ def _parse_multipart(content_type, body):
     return fields, files
 
 
+# ── Letras automáticas ────────────────────────────────────────────────────────
+def _run_lyrics(folder):
+    script = Path(__file__).parent.parent / 'scripts' / 'lyrics.sh'
+    if not script.exists():
+        return
+    try:
+        subprocess.run(['bash', str(script), folder], timeout=120)
+    except Exception:
+        pass
+
+
 # ── Trigger scan en Navidrome ─────────────────────────────────────────────────
 def _trigger_scan():
     if not ND_ADMIN_USER or not ND_ADMIN_PASS:
@@ -595,6 +606,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if ok_count:
             _notify(f'{ok_count} archivo(s) subido(s) a {subfolder}')
+            threading.Thread(target=_run_lyrics, args=(dest,), daemon=True).start()
 
         self._json({'ok': ok_count, 'errors': errors})
 

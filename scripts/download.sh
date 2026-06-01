@@ -70,8 +70,12 @@ echo ""
 COUNT=$(find "$DEST" -maxdepth 1 -name "*.mp3" 2>/dev/null | wc -l)
 info "Descarga completada. Archivos MP3 en $DEST: $COUNT"
 
-# Sugerir buscar letras para los archivos nuevos
-info "Consejo: ejecuta 'bash scripts/lyrics.sh \"$DEST\"' para descargar las letras."
+# Descargar letras automáticamente
+LYRICS_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/lyrics.sh"
+if [[ -f "$LYRICS_SCRIPT" ]]; then
+  info "Descargando letras automáticamente..."
+  bash "$LYRICS_SCRIPT" "$DEST" || true
+fi
 
 # Notificar
 FOLDER_NAME=$(basename "$DEST")
