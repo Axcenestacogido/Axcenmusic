@@ -1,0 +1,50 @@
+# =============================================================
+#  AXCENMUSIC — Configuración de Beets
+#  Gestión y etiquetado automático de la biblioteca de música
+# =============================================================
+
+directory: /mnt/music
+library: /opt/axcenmusic/beets/library.db
+
+plugins:
+  - fetchart
+  - embedart
+  - smartplaylist
+  - replaygain
+  - duplicates
+  - info
+
+import:
+  move: no        # no mover archivos de sitio
+  copy: no        # no copiar archivos
+  write: yes      # sí escribir tags mejorados al archivo
+  quiet: no       # pedir confirmación (modo interactivo)
+  timid: yes      # solo confirmar si la coincidencia es buena
+
+match:
+  strong_rec_thresh: 0.04
+  medium_rec_thresh: 0.25
+
+fetchart:
+  auto: yes
+  maxwidth: 600
+  enforce_ratio: no
+  sources:
+    - filesystem  # buscar art en la carpeta primero
+    - coverart
+    - itunes
+    - amazon
+
+embedart:
+  auto: yes
+  maxwidth: 500
+
+replaygain:
+  auto: no          # no analizar al importar (lento)
+  backend: ffmpeg   # usa ffmpeg, ya instalado
+  target_level: -18
+
+smartplaylist:
+  relative_to: /mnt/music
+  playlist_dir: /mnt/music/Playlists
+  playlists: []     # el script dj.sh gestiona las playlists dinámicamente

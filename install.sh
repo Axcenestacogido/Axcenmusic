@@ -224,6 +224,16 @@ step "5/5  SSH"
 SSH_PORT=$(ask "Puerto SSH" "22")
 PI_USER=$(ask "Usuario principal de la Pi" "pi")
 
+# ── EXTRAS: ntfy.sh ──────────────────────────────────────────────
+step "Extra  Notificaciones push (ntfy.sh)"
+echo "   ntfy.sh te avisa en el iPhone cuando hay backups, actualizaciones, etc."
+echo "   → Instala la app 'ntfy' del App Store"
+echo "   → Elige un nombre de topic único (ej: axcenmusic-$(openssl rand -hex 4 2>/dev/null || echo abc123))"
+echo "   → Suscríbete al topic en la app"
+echo "   Déjalo vacío para omitir las notificaciones (se pueden activar después)."
+echo ""
+NTFY_TOPIC=$(ask "Topic de ntfy.sh" "")
+
 # ── Resumen antes de instalar ─────────────────────────────────────
 echo ""
 echo -e "${BOLD}   ┌─────────────────────────────────────────────────────┐"
@@ -238,6 +248,7 @@ printf  "   │  %-22s  %-28s│\n" "Puerto Navidrome:"    "$ND_PORT"
 printf  "   │  %-22s  %-28s│\n" "Escaneo música:"      "$ND_SCAN_SCHEDULE"
 printf  "   │  %-22s  %-28s│\n" "Puerto SSH:"          "$SSH_PORT"
 printf  "   │  %-22s  %-28s│\n" "Usuario Pi:"          "$PI_USER"
+printf  "   │  %-22s  %-28s│\n" "Notificaciones:"      "${NTFY_TOPIC:-desactivadas}"
 echo -e "   └─────────────────────────────────────────────────────┘${NC}"
 echo ""
 
@@ -257,24 +268,27 @@ cat > "$ENV_FILE" <<EOF
 # ==============================================================
 
 # --- ALMACENAMIENTO ---
-MUSIC_DIR=$MUSIC_DIR
-STORAGE_UUID=$STORAGE_UUID
-STORAGE_FSTYPE=$STORAGE_FSTYPE
+MUSIC_DIR="$MUSIC_DIR"
+STORAGE_UUID="$STORAGE_UUID"
+STORAGE_FSTYPE="$STORAGE_FSTYPE"
 
 # --- NAVIDROME ---
-ND_PORT=$ND_PORT
+ND_PORT="$ND_PORT"
 ND_DATA_DIR=./navidrome-data
-ND_SCAN_SCHEDULE=$ND_SCAN_SCHEDULE
+ND_SCAN_SCHEDULE="$ND_SCAN_SCHEDULE"
 ND_LOG_LEVEL=info
 ND_SESSION_TIMEOUT=24h
 
 # --- TAILSCALE ---
-TAILSCALE_AUTH_KEY=$TAILSCALE_AUTH_KEY
-TAILSCALE_HOSTNAME=$TAILSCALE_HOSTNAME
+TAILSCALE_AUTH_KEY="$TAILSCALE_AUTH_KEY"
+TAILSCALE_HOSTNAME="$TAILSCALE_HOSTNAME"
 
 # --- SSH / SFTP ---
-SSH_PORT=$SSH_PORT
-PI_USER=$PI_USER
+SSH_PORT="$SSH_PORT"
+PI_USER="$PI_USER"
+
+# --- NOTIFICACIONES ---
+NTFY_TOPIC="$NTFY_TOPIC"
 EOF
 
 info ".env generado correctamente."
@@ -294,11 +308,14 @@ run_step() {
   bash "$SCRIPTS_DIR/$script"
 }
 
-run_step "Paso 1/5 — Sistema base"      "01-system-setup.sh"
-run_step "Paso 2/5 — Docker"            "02-install-docker.sh"
-run_step "Paso 3/5 — Navidrome"         "03-deploy-navidrome.sh"
-run_step "Paso 4/5 — Tailscale"         "04-install-tailscale.sh"
-run_step "Paso 5/5 — SFTP"             "05-setup-sftp.sh"
+run_step "Paso 1/8 — Sistema base"           "01-system-setup.sh"
+run_step "Paso 2/8 — Docker"                "02-install-docker.sh"
+run_step "Paso 3/8 — Navidrome"             "03-deploy-navidrome.sh"
+run_step "Paso 4/8 — Tailscale"             "04-install-tailscale.sh"
+run_step "Paso 5/8 — SFTP"                  "05-setup-sftp.sh"
+run_step "Paso 6/8 — Extras (yt-dlp, cron)" "06-setup-extras.sh"
+run_step "Paso 7/8 — Beets + análisis BPM"  "07-setup-beets.sh"
+run_step "Paso 8/8 — Cola de descargas web" "08-setup-webqueue.sh"
 
 # ══════════════════════════════════════════════════════════════════
 #  RESUMEN FINAL
@@ -340,13 +357,23 @@ cat <<SUMMARY
    │
    └────────────────────────────────────────────────────────────┘
 
+   ┌─── Cola de descargas web ──────────────────────────────────┐
+   │
+   │   http://${TAILSCALE_HOSTNAME}:${WEBQUEUE_PORT:-8888}
+   │   → Pega una URL de YouTube/Bandcamp y pulsa Añadir
+   │
+   └────────────────────────────────────────────────────────────┘
+
    ┌─── Comandos de mantenimiento ──────────────────────────────┐
    │
-   │   Logs:       sudo journalctl -u axcenmusic -f
-   │   Reiniciar:  sudo systemctl restart axcenmusic
-   │   Estado:     sudo systemctl status axcenmusic
-   │   VPN:        tailscale status
-   │   Disco:      df -h ${MUSIC_DIR}
+   │   Estado:      bash ${REPO_DIR}/scripts/status.sh
+   │   Actualizar:  sudo bash ${REPO_DIR}/scripts/update.sh
+   │   Backup:      sudo bash ${REPO_DIR}/scripts/backup.sh
+   │   Etiquetas:   bash ${REPO_DIR}/scripts/tag.sh
+   │   Analizar:    bash ${REPO_DIR}/scripts/analyze.sh
+   │   DJ:          bash ${REPO_DIR}/scripts/dj.sh
+   │   Letras:      bash ${REPO_DIR}/scripts/lyrics.sh
+   │   Logs:        docker compose -f ${REPO_DIR}/docker-compose.yml logs -f
    │
    └────────────────────────────────────────────────────────────┘
 
