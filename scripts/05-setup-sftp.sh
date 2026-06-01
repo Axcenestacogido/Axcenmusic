@@ -39,10 +39,15 @@ if ! id "$SFTP_USER" &>/dev/null; then
 fi
 
 # ---- Contraseña para el usuario SFTP ----
-echo ""
-warn "Establece una contraseña para el usuario SFTP '$SFTP_USER':"
-warn "Esta es la contraseña que usarás desde el iPhone para subir música."
-passwd "$SFTP_USER"
+if [[ -n "${SFTP_PASSWORD:-}" ]]; then
+  info "Estableciendo contraseña para '$SFTP_USER'..."
+  echo "$SFTP_USER:$SFTP_PASSWORD" | chpasswd
+else
+  echo ""
+  warn "Establece una contraseña para el usuario SFTP '$SFTP_USER':"
+  warn "Esta es la contraseña que usarás desde el iPhone para subir música."
+  passwd "$SFTP_USER"
+fi
 
 # ---- Estructura de directorios para chroot ----
 # El directorio raíz del chroot debe ser propiedad de root:root
