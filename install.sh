@@ -62,13 +62,35 @@ elif [[ -f "$(pwd)/docker-compose.yml" && -d "$(pwd)/scripts" ]]; then
   REPO_DIR="$(pwd)"
 else
   REPO_DIR="/opt/axcenmusic"
+  REPO_URL="https://github.com/Axcenestacogido/Axcenmusic.git"
+
   if [[ -d "$REPO_DIR/.git" ]]; then
     info "Actualizando repositorio en $REPO_DIR..."
     git -C "$REPO_DIR" pull --ff-only origin main 2>/dev/null || true
   else
     info "Clonando repositorio en $REPO_DIR..."
-    git clone https://github.com/Axcenestacogido/Axcenmusic.git "$REPO_DIR" \
-      || error "No se pudo clonar el repositorio. Comprueba la conexión a internet."
+    # Primer intento sin credenciales (repo público)
+    if ! git clone "$REPO_URL" "$REPO_DIR" 2>/dev/null; then
+      echo ""
+      warn "El clone falló. Si el repositorio es privado, introduce un"
+      warn "Personal Access Token (PAT) de GitHub para continuar."
+      echo ""
+      echo "   Cómo generar un PAT:"
+      echo "   → GitHub > Settings > Developer settings > Personal access tokens"
+      echo "   → Permisos necesarios: Contents (read)"
+      echo ""
+      GH_TOKEN=$(ask_secret "GitHub Personal Access Token (se usará solo para clonar)")
+      if [[ -z "$GH_TOKEN" ]]; then
+        error "No se proporcionó token. Clona el repo manualmente y vuelve a ejecutar install.sh desde dentro."
+      fi
+      # Extrae host y ruta del URL para insertar el token
+      REPO_URL_AUTH="${REPO_URL/https:\/\//https://x-access-token:${GH_TOKEN}@}"
+      git clone "$REPO_URL_AUTH" "$REPO_DIR" \
+        || error "Clone fallido incluso con token. Verifica que el PAT tenga acceso al repo."
+      # Elimina el token del remote para no dejarlo en git config
+      git -C "$REPO_DIR" remote set-url origin "$REPO_URL"
+      info "Repositorio clonado. Token eliminado del remote."
+    fi
   fi
 fi
 
