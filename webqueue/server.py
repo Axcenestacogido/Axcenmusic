@@ -277,13 +277,54 @@ def _stream_upload(rfile, content_type, total_length, music_dir):
     return ok_files, last_dest, errors
 
 
-# ── Letras automáticas ────────────────────────────────────────────────────────
+# ── Conversión a MP3 ──────────────────────────────────────────────────────────
+def _convert_to_mp3(file_path):
+    """Convierte un archivo de audio a MP3 320kbps. Devuelve la ruta final."""
+    suffix = Path(file_path).suffix.lower()
+    if suffix == '.mp3':
+        return file_path
+    mp3_path = file_path[:-len(suffix)] + '.mp3'
+    try:
+        cmd = ['ffmpeg', '-y', '-i', file_path,
+               '-codec:a', 'libmp3lame', '-b:a', '320k',
+               '-map_metadata', '0', '-id3v2_version', '3',
+               mp3_path]
+        r = subprocess.run(cmd, capture_output=True, timeout=300)
+        if r.returncode == 0:
+            os.remove(file_path)
+            return mp3_path
+    except Exception:
+        pass
+    return file_path  # devuelve el original si falla
+
+def _post_upload(folder):
+    """Convierte a MP3, descarga letras y lanza escaneo."""
+    # 1. Convertir todos los no-MP3 de la carpeta
+    for root, _, files in os.walk(folder):
+        for fn in files:
+            ext = Path(fn).suffix.lower()
+            if ext in AUDIO_EXTS and ext != '.mp3':
+                _convert_to_mp3(os.path.join(root, fn))
+
+    # 2. Letras
+    script = Path(__file__).parent.parent / 'scripts' / 'lyrics.sh'
+    if script.exists():
+        try:
+            subprocess.run(['bash', str(script), folder], timeout=300)
+        except Exception:
+            pass
+
+    # 3. Escaneo de Navidrome
+    _trigger_scan()
+
+
+# ── Letras automáticas (para descargas por URL) ───────────────────────────────
 def _run_lyrics(folder):
     script = Path(__file__).parent.parent / 'scripts' / 'lyrics.sh'
     if not script.exists():
         return
     try:
-        subprocess.run(['bash', str(script), folder], timeout=120)
+        subprocess.run(['bash', str(script), folder], timeout=300)
     except Exception:
         pass
 
@@ -978,7 +1019,7 @@ class Handler(BaseHTTPRequestHandler):
         ok_count = len(ok_files)
         if ok_count:
             _notify(f'{ok_count} archivo(s) subido(s)')
-            threading.Thread(target=_run_lyrics, args=(last_dest,), daemon=True).start()
+            threading.Thread(target=_post_upload, args=(last_dest,), daemon=True).start()
 
         self._json({'ok': ok_count, 'errors': errors})
 
