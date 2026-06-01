@@ -1,3 +1,5 @@
 .env
 navidrome-data/
 *.log
+__pycache__/
+*.pyc
