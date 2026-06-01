@@ -16,6 +16,7 @@ services:
       ND_SESSIONTIMEOUT: "${ND_SESSION_TIMEOUT:-24h}"
       ND_ENABLETRANSCODINGCONFIG: "true"
       ND_DEFAULTTHEME: Dark
+      ND_AUTOIMPORTPLAYLISTS: "true"
     volumes:
       - "${ND_DATA_DIR:-./navidrome-data}:/data"
       - "${MUSIC_DIR:-/mnt/music}:/music:ro"

@@ -308,12 +308,14 @@ run_step() {
   bash "$SCRIPTS_DIR/$script"
 }
 
-run_step "Paso 1/6 — Sistema base"      "01-system-setup.sh"
-run_step "Paso 2/6 — Docker"            "02-install-docker.sh"
-run_step "Paso 3/6 — Navidrome"         "03-deploy-navidrome.sh"
-run_step "Paso 4/6 — Tailscale"         "04-install-tailscale.sh"
-run_step "Paso 5/6 — SFTP"             "05-setup-sftp.sh"
-run_step "Paso 6/6 — Extras"           "06-setup-extras.sh"
+run_step "Paso 1/8 — Sistema base"           "01-system-setup.sh"
+run_step "Paso 2/8 — Docker"                "02-install-docker.sh"
+run_step "Paso 3/8 — Navidrome"             "03-deploy-navidrome.sh"
+run_step "Paso 4/8 — Tailscale"             "04-install-tailscale.sh"
+run_step "Paso 5/8 — SFTP"                  "05-setup-sftp.sh"
+run_step "Paso 6/8 — Extras (yt-dlp, cron)" "06-setup-extras.sh"
+run_step "Paso 7/8 — Beets + análisis BPM"  "07-setup-beets.sh"
+run_step "Paso 8/8 — Cola de descargas web" "08-setup-webqueue.sh"
 
 # ══════════════════════════════════════════════════════════════════
 #  RESUMEN FINAL
@@ -355,15 +357,23 @@ cat <<SUMMARY
    │
    └────────────────────────────────────────────────────────────┘
 
+   ┌─── Cola de descargas web ──────────────────────────────────┐
+   │
+   │   http://${TAILSCALE_HOSTNAME}:${WEBQUEUE_PORT:-8888}
+   │   → Pega una URL de YouTube/Bandcamp y pulsa Añadir
+   │
+   └────────────────────────────────────────────────────────────┘
+
    ┌─── Comandos de mantenimiento ──────────────────────────────┐
    │
    │   Estado:      bash ${REPO_DIR}/scripts/status.sh
    │   Actualizar:  sudo bash ${REPO_DIR}/scripts/update.sh
    │   Backup:      sudo bash ${REPO_DIR}/scripts/backup.sh
-   │   Descargar:   bash ${REPO_DIR}/scripts/download.sh 'URL'
+   │   Etiquetas:   bash ${REPO_DIR}/scripts/tag.sh
+   │   Analizar:    bash ${REPO_DIR}/scripts/analyze.sh
+   │   DJ:          bash ${REPO_DIR}/scripts/dj.sh
    │   Letras:      bash ${REPO_DIR}/scripts/lyrics.sh
    │   Logs:        docker compose -f ${REPO_DIR}/docker-compose.yml logs -f
-   │   VPN:         tailscale status
    │
    └────────────────────────────────────────────────────────────┘
 
