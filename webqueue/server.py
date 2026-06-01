@@ -982,81 +982,52 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_edit(self):
         content_type = self.headers.get('Content-Type', '')
         length       = int(self.headers.get('Content-Length', 0))
-        try:
-            ok_files, _, errors = _stream_upload(self.rfile, content_type, length, MUSIC_DIR)
-            # _stream_upload también puede procesar campos de texto como "pseudo-upload"
-            # Pero aquí necesitamos leer los campos manualmente vía el mismo parser.
-            # Reusamos _stream_upload para parsear campos + cover (si hay).
-        except Exception:
-            pass
 
-        # Re-leer usando el parser genérico de multipart para campos de texto + cover
-        # Guardamos el body en memoria (el edit es pequeño: solo texto + imagen pequeña)
-        self.rfile.seek(0) if hasattr(self.rfile, 'seek') else None
+        if length > 20 * 1024 * 1024:
+            self._json({'ok': False, 'error': 'Payload demasiado grande (máx 20 MB)'}); return
 
-        # Leemos directamente con el parser de stream adaptado
-        ct = content_type
-        m  = re.search(r'boundary=([^\s;]+)', ct)
+        # Leer todo en memoria — el edit es pequeño (texto + portada)
+        body = b''
+        remaining = length
+        while remaining > 0:
+            chunk = self.rfile.read(min(65536, remaining))
+            if not chunk: break
+            body += chunk
+            remaining -= len(chunk)
+
+        m = re.search(r'boundary=([^\s;]+)', content_type)
         if not m:
-            self._json({'ok': False, 'error': 'Bad request'}); return
+            self._json({'ok': False, 'error': 'Content-Type inválido'}); return
 
-        boundary = ('--' + m.group(1).strip('"')).encode()
-        CHUNK    = 65536
-        OVERLAP  = len(boundary) + 8
-        buf = b''; remaining = length
-        fields = {}; cover_data = None
+        boundary   = ('--' + m.group(1).strip('"')).encode()
+        fields     = {}
+        cover_data = None
 
-        def _r():
-            nonlocal buf, remaining
-            if remaining <= 0: return
-            c = self.rfile.read(min(CHUNK, remaining))
-            if c: buf += c; remaining -= len(c)
+        for part in body.split(boundary)[1:]:
+            if part.startswith(b'--') or part in (b'\r\n', b''):
+                continue
+            if part.startswith(b'\r\n'): part = part[2:]
+            if part.endswith(b'\r\n'):   part = part[:-2]
+            if b'\r\n\r\n' not in part:  continue
 
-        def _close(tail, fkey, fval, is_cover_part, cover_buf):
-            if tail.endswith(b'\r\n'): tail = tail[:-2]
-            if is_cover_part:
-                return cover_buf + tail
-            elif fkey:
-                fields[fkey] = (fval + tail).decode('utf-8', errors='replace')
-            return cover_buf
-
-        fkey = None; fval = b''; is_cover = False; cover_buf = b''
-
-        while True:
-            while boundary not in buf and remaining > 0: _r()
-            pos = buf.find(boundary)
-            if pos == -1:
-                cover_buf = _close(buf, fkey, fval, is_cover, cover_buf); break
-            cover_buf = _close(buf[:pos], fkey, fval, is_cover, cover_buf)
-            buf = buf[pos + len(boundary):]
-            while len(buf) < 4 and remaining > 0: _r()
-            if buf.startswith(b'--'): break
-            if buf.startswith(b'\r\n'): buf = buf[2:]
-            while b'\r\n\r\n' not in buf and remaining > 0: _r()
-            he = buf.find(b'\r\n\r\n')
-            if he == -1: break
-            raw = buf[:he].decode('utf-8', errors='replace'); buf = buf[he+4:]
+            raw_hdrs, content = part.split(b'\r\n\r\n', 1)
             hdrs = {}
-            for line in raw.split('\r\n'):
-                if ':' in line: k,v = line.split(':',1); hdrs[k.strip().lower()] = v.strip()
-            cd = hdrs.get('content-disposition','')
+            for line in raw_hdrs.decode('utf-8', errors='replace').split('\r\n'):
+                if ':' in line:
+                    k, v = line.split(':', 1)
+                    hdrs[k.strip().lower()] = v.strip()
+
+            cd = hdrs.get('content-disposition', '')
             nm = re.search(r'name="([^"]*)"', cd)
             fm = re.search(r'filename="([^"]*)"', cd)
-            if not nm: fkey = None; is_cover = False; continue
-            if fm:
-                fkey = None; fval = b''; is_cover = True; cover_buf = b''
-            else:
-                fkey = nm.group(1); fval = b''; is_cover = False; cover_buf = b''
-            while boundary not in buf and remaining > 0:
-                if len(buf) > OVERLAP:
-                    chunk = buf[:len(buf)-OVERLAP]
-                    if is_cover: cover_buf += chunk
-                    elif fkey: fval += chunk
-                    buf = buf[len(buf)-OVERLAP:]
-                _r()
-        if cover_buf: cover_data = cover_buf
+            if not nm: continue
 
-        path = _safe_path(fields.get('path',''))
+            if fm:
+                cover_data = content
+            else:
+                fields[nm.group(1)] = content.decode('utf-8', errors='replace')
+
+        path = _safe_path(fields.get('path', ''))
         if not path or not os.path.isfile(path):
             self._json({'ok': False, 'error': 'Archivo no encontrado'}); return
 
@@ -1065,7 +1036,7 @@ class Handler(BaseHTTPRequestHandler):
             fields.get('title'),
             fields.get('artist'),
             fields.get('album'),
-            cover_data if cover_data else None,
+            cover_data or None,
         )
         if ok:
             threading.Thread(target=_trigger_scan, daemon=True).start()
