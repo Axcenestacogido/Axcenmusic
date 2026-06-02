@@ -1920,11 +1920,13 @@ def render_page(flash='', flash_ok=True):
                 const u = new URL(img.src, location.href);
                 if (decodeURIComponent(u.searchParams.get('artist')) === artist) {{
                   u.searchParams.set('_', ts);
+                  img.style.opacity = '';
                   img.src = u.href;
                 }}
               }} catch(e) {{}}
             }});
             libLoaded = false;
+            loadLibrary();
           }} else {{
             alert('Error: ' + (res.error || 'desconocido'));
           }}
