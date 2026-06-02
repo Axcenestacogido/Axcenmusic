@@ -82,6 +82,10 @@ state_lock     = threading.Lock()
 night_queue = []
 night_lock  = threading.Lock()
 
+# ── Caché de carpeta de artista ────────────────────────────────────────────────
+_artist_folder_cache: dict = {}
+_artist_folder_cache_ts: float = 0.0
+
 
 # ── Notificación ntfy ─────────────────────────────────────────────────────────
 def _notify(msg):
@@ -398,6 +402,49 @@ def _has_cover(file_path):
         return False
     except Exception:
         return False
+
+
+def _get_artist_folder(artist_name):
+    """Returns path of first folder containing a song tagged with this artist. Cached 5 min."""
+    global _artist_folder_cache, _artist_folder_cache_ts
+    now = time.time()
+    if now - _artist_folder_cache_ts > 300:
+        _artist_folder_cache = {}
+        _artist_folder_cache_ts = now
+    key = artist_name.lower().strip()
+    if key in _artist_folder_cache:
+        return _artist_folder_cache[key]
+    result = None
+    for root, _, files in os.walk(MUSIC_DIR):
+        if result:
+            break
+        for fn in files:
+            if Path(fn).suffix.lower() not in AUDIO_EXTS:
+                continue
+            tags = _read_tags(os.path.join(root, fn))
+            if (tags.get('artist') or '').lower().strip() == key:
+                result = root
+                break
+    _artist_folder_cache[key] = result
+    return result
+
+
+def _get_artist_cover(artist_name):
+    """Returns (bytes, mime) for artist.jpg/png in the artist's folder, or (None, None)."""
+    folder = _get_artist_folder(artist_name)
+    if not folder:
+        return None, None
+    for fname in ('artist.jpg', 'artist.jpeg', 'artist.png'):
+        p = os.path.join(folder, fname)
+        if os.path.isfile(p):
+            try:
+                with open(p, 'rb') as f:
+                    data = f.read()
+                mime = 'image/png' if fname.endswith('.png') else 'image/jpeg'
+                return data, mime
+            except Exception:
+                pass
+    return None, None
 
 
 def _post_upload(folder):
@@ -990,6 +1037,8 @@ def render_page(flash='', flash_ok=True):
     .nq-item{{display:flex;align-items:center;gap:8px;padding:6px 0;
               border-bottom:1px solid #3f3f46;font-size:.85rem}}
     .nq-url{{flex:1;word-break:break-all;color:#c7d2fe}}
+    .artist-thumb{{width:32px;height:32px;object-fit:cover;border-radius:50%;
+                   background:#3f3f46;flex-shrink:0;border:2px solid #3f3f46}}
     /* Multi-select */
     .song-row.selected{{background:#2d2b1e}}
     .bulk-bar{{position:sticky;bottom:0;background:#1c1917;border-top:1px solid #f59e0b;
@@ -1450,8 +1499,10 @@ def render_page(flash='', flash_ok=True):
       html2 += '<div class="artist-section">';
       html2 += '<div class="artist-header" data-sec="' + arId + '" onclick="toggleSection(this.dataset.sec)">'
              + '<span class="collapse-icon" id="' + arId + '-icon">&#9660;</span>'
+             + '<img class="artist-thumb" loading="lazy" src="/artist-cover?artist=' + encodeURIComponent(ar) + '" alt="" onerror="this.style.opacity=\'0\'">'
              + '<span>' + escHtml(ar) + '</span>'
              + '<span class="muted" style="font-size:.8rem;margin-left:auto">' + arCount + ' canciones</span>'
+             + '<button class="btn-sm" data-artist="' + escHtml(ar) + '" onclick="event.stopPropagation();pickArtistImg(this.dataset.artist)" style="margin-left:8px;padding:4px 8px;flex-shrink:0" title="Cambiar imagen">🖼</button>'
              + '</div>';
       html2 += '<div id="' + arId + '">';
       const albumNames = Object.keys(albums).sort();
@@ -1847,6 +1898,31 @@ def render_page(flash='', flash_ok=True):
     }}
   }}
 
+  // ── Imagen de artista ─────────────────────────────────────────────
+  function pickArtistImg(artist) {{
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.onchange = function() {{
+      if (!inp.files[0]) return;
+      const fd = new FormData();
+      fd.append('artist', artist);
+      fd.append('image', inp.files[0]);
+      fetch('/artist-cover', {{method: 'POST', body: fd}})
+        .then(function(r) {{ return r.json(); }})
+        .then(function(res) {{
+          if (res.ok) {{
+            libLoaded = false;
+            loadLibrary();
+          }} else {{
+            alert('Error: ' + (res.error || 'desconocido'));
+          }}
+        }})
+        .catch(function() {{ alert('Error de red'); }});
+    }};
+    inp.click();
+  }}
+
   // ── yt-dlp actualizar ─────────────────────────────────────────────
   async function updateYtdlp() {{
     const btn   = document.getElementById('btn-ytdlp-update');
@@ -1965,6 +2041,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_sse()
         elif parsed.path == '/cover':
             self._handle_cover(qs)
+        elif parsed.path == '/artist-cover':
+            self._handle_artist_cover_get(qs)
         elif parsed.path == '/stream':
             self._handle_stream(qs)
         else:
@@ -1993,6 +2071,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_spotify()
         elif path == '/ytdlp-update':
             self._handle_ytdlp_update()
+        elif path == '/artist-cover':
+            self._handle_artist_cover_post()
         else:
             self._html('<p>Not found</p>', 404)
 
@@ -2080,6 +2160,79 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
         self.wfile.write(data)
+
+    def _handle_artist_cover_get(self, qs):
+        artist = unquote_plus(qs.get('artist', [''])[0]).strip()
+        if not artist:
+            self.send_response(204); self.end_headers(); return
+        data, mime = _get_artist_cover(artist)
+        if not data:
+            self.send_response(204); self.end_headers(); return
+        self.send_response(200)
+        self.send_header('Content-Type', mime)
+        self.send_header('Content-Length', len(data))
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _handle_artist_cover_post(self):
+        content_type = self.headers.get('Content-Type', '')
+        length = int(self.headers.get('Content-Length', 0))
+        if length > 20 * 1024 * 1024:
+            self._json({'ok': False, 'error': 'Imagen demasiado grande (máx 20 MB)'}); return
+        body = b''
+        remaining = length
+        while remaining > 0:
+            chunk = self.rfile.read(min(65536, remaining))
+            if not chunk: break
+            body += chunk
+            remaining -= len(chunk)
+        m = re.search(r'boundary=([^\s;]+)', content_type)
+        if not m:
+            self._json({'ok': False, 'error': 'Content-Type inválido'}); return
+        boundary = ('--' + m.group(1).strip('"')).encode()
+        artist_name = None
+        image_data  = None
+        image_ext   = '.jpg'
+        for part in body.split(boundary)[1:]:
+            if part.startswith(b'--') or part in (b'\r\n', b''):
+                continue
+            if part.startswith(b'\r\n'): part = part[2:]
+            if part.endswith(b'\r\n'):   part = part[:-2]
+            if b'\r\n\r\n' not in part:  continue
+            raw_hdrs, content = part.split(b'\r\n\r\n', 1)
+            hdrs = {}
+            for line in raw_hdrs.decode('utf-8', errors='replace').split('\r\n'):
+                if ':' in line:
+                    k, v = line.split(':', 1)
+                    hdrs[k.strip().lower()] = v.strip()
+            cd = hdrs.get('content-disposition', '')
+            nm = re.search(r'name="([^"]*)"', cd)
+            fm = re.search(r'filename="([^"]*)"', cd)
+            if not nm: continue
+            if nm.group(1) == 'artist':
+                artist_name = content.decode('utf-8', errors='replace').strip()
+            elif nm.group(1) == 'image' and fm:
+                image_data = content
+                ext = Path(fm.group(1)).suffix.lower()
+                image_ext = ext if ext in ('.jpg', '.jpeg', '.png') else '.jpg'
+        if not artist_name or not image_data:
+            self._json({'ok': False, 'error': 'Faltan datos (artist + image)'}); return
+        folder = _get_artist_folder(artist_name)
+        if not folder:
+            self._json({'ok': False, 'error': f'No se encontró carpeta para "{artist_name}"'}); return
+        save_name = 'artist.png' if image_ext == '.png' else 'artist.jpg'
+        save_path  = os.path.join(folder, save_name)
+        try:
+            with open(save_path, 'wb') as f:
+                f.write(image_data)
+            # Invalidate cache
+            global _artist_folder_cache
+            _artist_folder_cache = {}
+            threading.Thread(target=_trigger_scan, daemon=True).start()
+            self._json({'ok': True, 'path': save_path})
+        except Exception as e:
+            self._json({'ok': False, 'error': str(e)})
 
     def _handle_stream(self, qs):
         """Sirve un archivo de audio con soporte de Range (HTTP 206)."""
