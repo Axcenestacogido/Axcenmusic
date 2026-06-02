@@ -1593,7 +1593,7 @@ def render_page(flash='', flash_ok=True):
     document.getElementById('edit-error').style.display = 'none';
     document.getElementById('edit-cover-input').value = '';
     const img = document.getElementById('edit-cover-preview');
-    img.src = '/cover?p=' + encodeURIComponent(pathB64);
+    img.src = '/cover?p=' + encodeURIComponent(pathB64) + '&_=' + Date.now();
     img.style.display = 'block';
     document.getElementById('edit-modal').style.display = 'flex';
   }}
@@ -2077,7 +2077,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', len(data))
-        self.send_header('Cache-Control', 'max-age=3600')
+        self.send_header('Cache-Control', 'no-store')
         self.end_headers()
         self.wfile.write(data)
 
