@@ -1455,6 +1455,7 @@ def render_page(flash='', flash_ok=True):
 
   // ── Biblioteca agrupada ───────────────────────────────────────────
   let libLoaded = false;
+  const _artistImgTs = {{}};
   async function loadLibrary() {{
     const loadEl = document.getElementById('lib-loading');
     const listEl = document.getElementById('lib-list');
@@ -1499,7 +1500,7 @@ def render_page(flash='', flash_ok=True):
       html2 += '<div class="artist-section">';
       html2 += '<div class="artist-header" data-sec="' + arId + '" onclick="toggleSection(this.dataset.sec)">'
              + '<span class="collapse-icon" id="' + arId + '-icon">&#9660;</span>'
-             + '<img class="artist-thumb" loading="lazy" src="/artist-cover?artist=' + encodeURIComponent(ar) + '" alt="" onerror="this.style.opacity=0">'
+             + '<img class="artist-thumb" loading="lazy" src="/artist-cover?artist=' + encodeURIComponent(ar) + (_artistImgTs[ar] ? '&_=' + _artistImgTs[ar] : '') + '" alt="" onerror="this.style.opacity=0">'
              + '<span>' + escHtml(ar) + '</span>'
              + '<span class="muted" style="font-size:.8rem;margin-left:auto">' + arCount + ' canciones</span>'
              + '<button class="btn-sm" data-artist="' + escHtml(ar) + '" onclick="event.stopPropagation();pickArtistImg(this.dataset.artist)" style="margin-left:8px;padding:4px 8px;flex-shrink:0" title="Cambiar imagen">🖼</button>'
@@ -1912,8 +1913,18 @@ def render_page(flash='', flash_ok=True):
         .then(function(r) {{ return r.json(); }})
         .then(function(res) {{
           if (res.ok) {{
+            const ts = Date.now();
+            _artistImgTs[artist] = ts;
+            document.querySelectorAll('img.artist-thumb').forEach(function(img) {{
+              try {{
+                const u = new URL(img.src, location.href);
+                if (decodeURIComponent(u.searchParams.get('artist')) === artist) {{
+                  u.searchParams.set('_', ts);
+                  img.src = u.href;
+                }}
+              }} catch(e) {{}}
+            }});
             libLoaded = false;
-            loadLibrary();
           }} else {{
             alert('Error: ' + (res.error || 'desconocido'));
           }}
