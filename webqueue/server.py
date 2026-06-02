@@ -39,6 +39,37 @@ SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', '')
 
 AUDIO_EXTS = {'.mp3', '.flac', '.m4a', '.ogg', '.opus', '.wav', '.aac', '.wma', '.aiff', '.alac'}
 
+
+def _make_icon_png():
+    """192×192 amber PNG icon, stdlib only."""
+    import zlib, struct
+    w = h = 192
+    row = b'\x00' + bytes([245, 158, 11] * w)  # filter=None + RGB(f59e0b)
+    raw = row * h
+    def chunk(tag, data):
+        crc = zlib.crc32(tag + data) & 0xffffffff
+        return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', crc)
+    ihdr = struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)
+    return (b'\x89PNG\r\n\x1a\n'
+            + chunk(b'IHDR', ihdr)
+            + chunk(b'IDAT', zlib.compress(raw))
+            + chunk(b'IEND', b''))
+
+_ICON_PNG = _make_icon_png()
+
+_MANIFEST = json.dumps({
+    "name": "Axcenmusic",
+    "short_name": "Axcenmusic",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#18181b",
+    "theme_color": "#f59e0b",
+    "icons": [
+        {"src": "/icon.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "/icon.png", "sizes": "512x512", "type": "image/png"}
+    ]
+}, separators=(',', ':'))
+
 # ── Estado compartido ──────────────────────────────────────────────────────────
 download_queue = queue.Queue()
 history        = []   # descargas por URL
@@ -645,6 +676,69 @@ def _get_library_stats():
     }
 
 
+# ── Escáner de calidad ────────────────────────────────────────────────────────
+def _scan_quality():
+    issues = []
+    for root, _, files in os.walk(MUSIC_DIR):
+        for fn in sorted(files):
+            ext = Path(fn).suffix.lower()
+            if ext not in AUDIO_EXTS:
+                continue
+            path = os.path.join(root, fn)
+            tags = _read_tags(path)
+            missing = []
+            if not tags.get('title'):  missing.append('título')
+            if not tags.get('artist'): missing.append('artista')
+            if not tags.get('album'):  missing.append('álbum')
+            if not _has_cover(path):   missing.append('portada')
+            lrc = path[:-len(ext)] + '.lrc'
+            if not os.path.exists(lrc): missing.append('letra')
+            if missing:
+                issues.append({
+                    'p': base64.b64encode(path.encode()).decode(),
+                    'f': fn,
+                    'r': os.path.relpath(path, MUSIC_DIR),
+                    't': tags.get('title', Path(fn).stem),
+                    'ar': tags.get('artist', ''),
+                    'missing': missing,
+                })
+    return issues
+
+
+# ── yt-dlp versión ────────────────────────────────────────────────────────────
+def _ytdlp_version():
+    try:
+        r = subprocess.run(['yt-dlp', '--version'], capture_output=True, text=True, timeout=10)
+        return r.stdout.strip()
+    except Exception:
+        return 'desconocida'
+
+
+# ── Reproduciendo ahora ───────────────────────────────────────────────────────
+def _now_playing():
+    if not ND_ADMIN_USER or not ND_ADMIN_PASS:
+        return None
+    url = (f'{ND_URL}/rest/getNowPlaying.view'
+           f'?u={ND_ADMIN_USER}&p={ND_ADMIN_PASS}&v=1.16.1&c=webqueue&f=json')
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = json.loads(r.read())
+        entries = (data.get('subsonic-response', {})
+                       .get('nowPlaying', {})
+                       .get('entry', []))
+        if not entries:
+            return None
+        e = entries[0] if isinstance(entries, list) else entries
+        return {
+            'title':    e.get('title', ''),
+            'artist':   e.get('artist', ''),
+            'album':    e.get('album', ''),
+            'coverArt': e.get('coverArt', ''),
+        }
+    except Exception:
+        return None
+
+
 # ── Spotify ───────────────────────────────────────────────────────────────────
 def _spotify_tracks(url):
     """Extrae las pistas de una playlist de Spotify. Devuelve lista de {title, artist}."""
@@ -728,6 +822,27 @@ def render_page(flash='', flash_ok=True):
     with night_lock:
         nq_snap = list(night_queue)
 
+    ytdlp_ver = _ytdlp_version()
+
+    nd_url_js  = html.escape(ND_URL)
+    nd_user_js = html.escape(ND_ADMIN_USER)
+    nd_pass_js = html.escape(ND_ADMIN_PASS)
+
+    now_playing_html = ''
+    if ND_ADMIN_USER and ND_ADMIN_PASS:
+        now_playing_html = (
+            '<div id="np-card" style="display:none;background:#27272a;border-radius:12px;'
+            'padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px">'
+            '<img id="np-cover" src="" style="width:48px;height:48px;object-fit:cover;border-radius:6px;background:#3f3f46;flex-shrink:0">'
+            '<div style="min-width:0">'
+            '<div style="font-size:.7rem;color:#71717a;text-transform:uppercase;letter-spacing:.05em">Reproduciendo ahora</div>'
+            '<div id="np-title" style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>'
+            '<div id="np-artist" style="color:#a1a1aa;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>'
+            '</div>'
+            '<span style="margin-left:auto;color:#4ade80;font-size:1.2rem;flex-shrink:0">♪</span>'
+            '</div>'
+        )
+
     # Historial descargas
     dl_rows = ''
     for h in hist[:10]:
@@ -776,6 +891,12 @@ def render_page(flash='', flash_ok=True):
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Axcenmusic</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Axcenmusic">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <meta name="theme-color" content="#f59e0b">
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
     body{{background:#18181b;color:#e4e4e7;font-family:system-ui,sans-serif;
@@ -869,6 +990,11 @@ def render_page(flash='', flash_ok=True):
     .nq-item{{display:flex;align-items:center;gap:8px;padding:6px 0;
               border-bottom:1px solid #3f3f46;font-size:.85rem}}
     .nq-url{{flex:1;word-break:break-all;color:#c7d2fe}}
+    /* Multi-select */
+    .song-row.selected{{background:#2d2b1e}}
+    .bulk-bar{{position:sticky;bottom:0;background:#1c1917;border-top:1px solid #f59e0b;
+               padding:10px 14px;display:flex;align-items:center;gap:10px;
+               font-size:.88rem}}
   </style>
 </head>
 <body>
@@ -876,6 +1002,7 @@ def render_page(flash='', flash_ok=True):
   <p class="sub">Interfaz web · solo accesible via Tailscale</p>
 
   {flash_html}
+  {now_playing_html}
 
   <div class="tabs">
     <div class="tab active" onclick="switchTab('upload')">Subir</div>
@@ -975,6 +1102,15 @@ def render_page(flash='', flash_ok=True):
       <div class="card-title">Log de descarga en tiempo real</div>
       <pre class="logbox" id="sse-log">Esperando actividad…</pre>
     </div>
+
+    <!-- yt-dlp actualizar -->
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>yt-dlp — versión: <span id="ytdlp-ver">{ytdlp_ver}</span></span>
+        <button class="btn-scan" onclick="updateYtdlp()" id="btn-ytdlp-update">&#8593; Actualizar</button>
+      </div>
+      <pre class="logbox" id="ytdlp-log" style="display:none;max-height:120px"></pre>
+    </div>
   </div>
 
   <!-- ── BIBLIOTECA ── -->
@@ -988,6 +1124,11 @@ def render_page(flash='', flash_ok=True):
              style="margin-bottom:10px" oninput="filterLibrary(this.value)">
       <div id="lib-loading" class="muted">Cargando…</div>
       <div id="lib-list"></div>
+      <div id="bulk-bar" class="bulk-bar" style="display:none">
+        <span id="bulk-count">0 seleccionadas</span>
+        <button class="btn-scan" style="margin-left:auto" onclick="bulkDelete()">🗑 Eliminar seleccionadas</button>
+        <button class="btn-scan" onclick="clearSelection()">✕ Deseleccionar</button>
+      </div>
     </div>
 
     <!-- Estadísticas -->
@@ -997,6 +1138,16 @@ def render_page(flash='', flash_ok=True):
         <button class="btn-scan" onclick="loadStats()">📊 Calcular</button>
       </div>
       <div id="stats-wrap" class="muted">Pulsa Calcular (puede tardar unos segundos).</div>
+    </div>
+
+    <!-- Calidad -->
+    <div class="card">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Escáner de calidad</span>
+        <button class="btn-scan" onclick="runQualityScan()">🔍 Escanear</button>
+      </div>
+      <div id="quality-status" class="muted">Pulsa Escanear para detectar canciones con metadatos incompletos.</div>
+      <div id="quality-list"></div>
     </div>
 
     <!-- Duplicados -->
@@ -1318,7 +1469,8 @@ def render_page(flash='', flash_ok=True):
         for (let si = 0; si < slist.length; si++) {{
           const s = slist[si];
           const searchVal = escHtml((s.t + ' ' + s.ar + ' ' + s.al).toLowerCase());
-          html2 += '<div class="song-row" data-search="' + searchVal + '">'
+          html2 += '<div class="song-row" data-search="' + searchVal + '" onclick="rowClick(event,this)">'
+                 + '<input type="checkbox" class="song-check" data-p="' + escHtml(s.p) + '" onchange="updateBulkBar()" style="flex-shrink:0;accent-color:#f59e0b;width:16px;height:16px">'
                  + '<img src="/cover?p=' + encodeURIComponent(s.p) + '" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:4px;background:#3f3f46;flex-shrink:0" onerror="this.style.background=&quot;#3f3f46&quot;;this.src=&quot;&quot;">'
                  + '<div style="flex:1;min-width:0">'
                  + '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(s.t) + '</div>'
@@ -1626,6 +1778,118 @@ def render_page(flash='', flash_ok=True):
     xhr.send(fd);
   }}
 
+  // ── Multi-selección ────────────────────────────────────────────────
+  function rowClick(event, row) {{
+    if (event.target.tagName === 'BUTTON' || event.target.tagName === 'INPUT') return;
+    const c = row.querySelector('.song-check');
+    if (c) {{ c.checked = !c.checked; updateBulkBar(); }}
+  }}
+
+  function updateBulkBar() {{
+    const checked = document.querySelectorAll('.song-check:checked');
+    const bar = document.getElementById('bulk-bar');
+    document.getElementById('bulk-count').textContent = checked.length + ' seleccionada' + (checked.length !== 1 ? 's' : '');
+    bar.style.display = checked.length ? 'flex' : 'none';
+  }}
+
+  function clearSelection() {{
+    document.querySelectorAll('.song-check:checked').forEach(function(c) {{ c.checked = false; }});
+    document.getElementById('bulk-bar').style.display = 'none';
+  }}
+
+  async function bulkDelete() {{
+    const checked = Array.from(document.querySelectorAll('.song-check:checked'));
+    if (!checked.length) return;
+    if (!confirm('\\u00bfEliminar ' + checked.length + ' canciones?\\nEsta acci\\u00f3n no se puede deshacer.')) return;
+    let errors = 0;
+    for (let i = 0; i < checked.length; i++) {{
+      const fd = new FormData();
+      fd.append('path', checked[i].dataset.p);
+      try {{
+        const r   = await fetch('/delete', {{method:'POST', body: fd}});
+        const res = await r.json();
+        if (!res.ok) errors++;
+      }} catch(ex) {{ errors++; }}
+    }}
+    libLoaded = false;
+    loadLibrary();
+    if (errors) alert(errors + ' error(es) al eliminar.');
+  }}
+
+  // ── Escáner de calidad ────────────────────────────────────────────
+  async function runQualityScan() {{
+    const statusEl = document.getElementById('quality-status');
+    const listEl   = document.getElementById('quality-list');
+    statusEl.textContent = 'Escaneando… (puede tardar unos segundos)';
+    listEl.innerHTML = '';
+    try {{
+      const r      = await fetch('/api/quality');
+      const issues = await r.json();
+      if (!issues.length) {{
+        statusEl.textContent = '✓ Todo en orden. No hay canciones con datos incompletos.';
+        return;
+      }}
+      statusEl.textContent = issues.length + ' canción(es) con datos incompletos:';
+      listEl.innerHTML = issues.map(function(s) {{
+        return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #3f3f46">'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.88rem">'
+          + escHtml(s.t || s.f) + (s.ar ? ' <span class="muted">— ' + escHtml(s.ar) + '</span>' : '') + '</div>'
+          + '<div style="margin-top:3px">' + s.missing.map(function(m) {{
+              return '<span style="background:#450a0a;color:#f87171;border-radius:4px;padding:1px 6px;font-size:.72rem;margin-right:4px">' + escHtml(m) + '</span>';
+            }}).join('') + '</div>'
+          + '</div>'
+          + '<button class="btn-sm" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" data-ar="' + escHtml(s.ar) + '" data-al="" data-ge="" onclick="openEdit(this.dataset.p,this.dataset.t,this.dataset.ar,this.dataset.al,this.dataset.ge)" style="flex-shrink:0">✎ Editar</button>'
+          + '</div>';
+      }}).join('');
+    }} catch(ex) {{
+      statusEl.textContent = 'Error al escanear.';
+    }}
+  }}
+
+  // ── yt-dlp actualizar ─────────────────────────────────────────────
+  async function updateYtdlp() {{
+    const btn   = document.getElementById('btn-ytdlp-update');
+    const logEl = document.getElementById('ytdlp-log');
+    const verEl = document.getElementById('ytdlp-ver');
+    btn.disabled = true;
+    btn.textContent = 'Actualizando…';
+    logEl.style.display = 'block';
+    logEl.textContent = 'Ejecutando yt-dlp -U …';
+    try {{
+      const r   = await fetch('/ytdlp-update', {{method:'POST'}});
+      const res = await r.json();
+      logEl.textContent = res.output || '(sin salida)';
+      if (res.version) verEl.textContent = res.version;
+    }} catch(ex) {{
+      logEl.textContent = 'Error de red.';
+    }}
+    btn.disabled = false;
+    btn.textContent = '↑ Actualizar';
+  }}
+
+  // ── Reproduciendo ahora ────────────────────────────────────────────
+  async function pollNowPlaying() {{
+    try {{
+      const r   = await fetch('/api/nowplaying');
+      const np  = await r.json();
+      const card = document.getElementById('np-card');
+      if (!card) return;
+      if (np && np.title) {{
+        document.getElementById('np-title').textContent  = np.title;
+        document.getElementById('np-artist').textContent = np.artist || '';
+        document.getElementById('np-cover').src = np.coverArt
+          ? '{nd_url_js}/rest/getCoverArt.view?u={nd_user_js}&p={nd_pass_js}&v=1.16.1&c=webqueue&id=' + encodeURIComponent(np.coverArt)
+          : '';
+        card.style.display = 'flex';
+      }} else {{
+        card.style.display = 'none';
+      }}
+    }} catch(ex) {{}}
+  }}
+  pollNowPlaying();
+  setInterval(pollNowPlaying, 15000);
+
   // Cargar biblioteca al abrir la página (pestaña Biblioteca siempre lista)
   loadLibrary();
   </script>
@@ -1664,7 +1928,21 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs     = urllib.parse.parse_qs(parsed.query)
 
-        if parsed.path == '/api/library':
+        if parsed.path == '/manifest.json':
+            data = _MANIFEST.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/manifest+json')
+            self.send_header('Content-Length', len(data))
+            self.end_headers()
+            self.wfile.write(data)
+        elif parsed.path == '/icon.png':
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Content-Length', len(_ICON_PNG))
+            self.send_header('Cache-Control', 'max-age=86400')
+            self.end_headers()
+            self.wfile.write(_ICON_PNG)
+        elif parsed.path == '/api/library':
             self._json(_list_songs())
         elif parsed.path == '/api/search':
             q = unquote_plus(qs.get('q', [''])[0]).strip()
@@ -1679,6 +1957,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(list(night_queue))
         elif parsed.path == '/api/stats':
             self._json(_get_library_stats())
+        elif parsed.path == '/api/quality':
+            self._json(_scan_quality())
+        elif parsed.path == '/api/nowplaying':
+            self._json(_now_playing() or {})
         elif parsed.path == '/events':
             self._handle_sse()
         elif parsed.path == '/cover':
@@ -1709,6 +1991,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_unschedule()
         elif path == '/spotify':
             self._handle_spotify()
+        elif path == '/ytdlp-update':
+            self._handle_ytdlp_update()
         else:
             self._html('<p>Not found</p>', 404)
 
@@ -1989,6 +2273,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'ok': True})
         except Exception as e:
             self._json({'ok': False, 'error': str(e)})
+
+    def _handle_ytdlp_update(self):
+        try:
+            r = subprocess.run(['yt-dlp', '-U'], capture_output=True, text=True, timeout=120)
+            out = (r.stdout + r.stderr).strip()
+            return self._json({'ok': r.returncode == 0, 'output': out[-800:], 'version': _ytdlp_version()})
+        except Exception as e:
+            return self._json({'ok': False, 'output': str(e), 'version': ''})
 
     def _handle_schedule(self):
         """Añade una URL a la cola nocturna."""
