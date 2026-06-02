@@ -20,6 +20,7 @@ import html
 import time
 import urllib.request
 import urllib.parse
+import concurrent.futures
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, unquote_plus
@@ -85,6 +86,10 @@ night_lock  = threading.Lock()
 # ── Caché de carpeta de artista ────────────────────────────────────────────────
 _artist_folder_cache: dict = {}
 _artist_folder_cache_ts: float = 0.0
+
+# ── Caché de tags por archivo (mtime + size) ───────────────────────────────────
+_tag_cache: dict = {}  # path -> (mtime, size, tags)
+_tag_cache_lock = threading.Lock()
 
 
 # ── Notificación ntfy ─────────────────────────────────────────────────────────
@@ -532,28 +537,50 @@ def _read_tags(file_path):
     except Exception:
         return {}
 
+def _read_tags_cached(file_path):
+    """Like _read_tags but caches by (mtime, size) — avoids ffprobe for unchanged files."""
+    try:
+        st = os.stat(file_path)
+        key = (st.st_mtime, st.st_size)
+        with _tag_cache_lock:
+            entry = _tag_cache.get(file_path)
+        if entry and entry[0] == key[0] and entry[1] == key[1]:
+            return entry[2]
+        tags = _read_tags(file_path)
+        with _tag_cache_lock:
+            _tag_cache[file_path] = (key[0], key[1], tags)
+        return tags
+    except Exception:
+        return _read_tags(file_path)
+
 def _list_songs():
-    songs = []
+    paths = []
     for root, _, files in os.walk(MUSIC_DIR):
         for fn in sorted(files):
             if Path(fn).suffix.lower() not in AUDIO_EXTS:
                 continue
-            path = os.path.join(root, fn)
-            try:
-                tags = _read_tags(path)
-                songs.append({
-                    'p': base64.b64encode(path.encode()).decode(),
-                    'f': fn,
-                    'r': os.path.relpath(path, MUSIC_DIR),
-                    't': tags.get('title', Path(fn).stem),
-                    'ar': tags.get('artist', ''),
-                    'al': tags.get('album', ''),
-                    'ge': tags.get('genre', ''),
-                    'sz': f'{os.path.getsize(path) / 1048576:.1f} MB',
-                })
-            except Exception:
-                pass
-    return songs
+            paths.append(os.path.join(root, fn))
+
+    def _process(path):
+        try:
+            tags = _read_tags_cached(path)
+            fn = os.path.basename(path)
+            return {
+                'p': base64.b64encode(path.encode()).decode(),
+                'f': fn,
+                'r': os.path.relpath(path, MUSIC_DIR),
+                't': tags.get('title', Path(fn).stem),
+                'ar': tags.get('artist', ''),
+                'al': tags.get('album', ''),
+                'ge': tags.get('genre', ''),
+                'sz': f'{os.path.getsize(path) / 1048576:.1f} MB',
+            }
+        except Exception:
+            return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        results = ex.map(_process, paths)
+    return [r for r in results if r is not None]
 
 def _get_cover_bytes(file_path):
     try:
