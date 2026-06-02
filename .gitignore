@@ -3,3 +3,4 @@ navidrome-data/
 *.log
 __pycache__/
 *.pyc
+plugins/*.ndp

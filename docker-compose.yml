@@ -20,9 +20,12 @@ services:
       ND_LASTFM_ENABLED: "true"
       ND_LASTFM_APIKEY: "6607d97679e26a55be344b35fe0ca1c2"
       ND_LASTFM_SECRET: "a5bf5577ff60e766deb005dcc9db2639"
+      ND_PLUGINSFOLDER: /plugins
+      ND_LYRICSPRIORITY: "nd-lyrics,lrclib"
     volumes:
       - "${ND_DATA_DIR:-./navidrome-data}:/data"
       - "${MUSIC_DIR:-/mnt/music}:/music:ro"
+      - "./plugins:/plugins:ro"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:4533/ping"]
       interval: 30s
