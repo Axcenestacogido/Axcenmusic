@@ -4,7 +4,8 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PLUGINS_DIR="$REPO_DIR/plugins"
+# Navidrome always loads plugins from <datafolder>/plugins (/data/plugins inside container)
+PLUGINS_DIR="$REPO_DIR/navidrome-data/plugins"
 VERSION="${1:-v6.1.3}"
 URL="https://github.com/J0R6IT0/navidrome-lyrics-plugin/releases/download/${VERSION}/nd-lyrics.ndp"
 

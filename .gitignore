@@ -4,3 +4,4 @@ navidrome-data/
 __pycache__/
 *.pyc
 plugins/*.ndp
+navidrome-data/plugins/*.ndp
