@@ -1,0 +1,165 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 3979 >>
+stream
+0.118 0.118 0.180 rg 0 792 595 50 re f 0 0 0 rg
+1.000 1.000 1.000 rg
+BT /F1 18 Tf 40 808 Td (AXCENMUSIC  --  Datos de conexion) Tj ET
+0 0 0 rg
+0.961 0.620 0.043 rg 0 770 595 22 re f 0 0 0 rg
+0.118 0.118 0.180 rg
+BT /F1 10 Tf 40 776 Td (Configuracion generada el 15/06/2026) Tj ET
+0 0 0 rg
+0.231 0.510 0.965 rg 30 736 535 22 re f 0 0 0 rg
+1.000 1.000 1.000 rg
+BT /F1 12 Tf 40 742 Td (NAVIBEAT (iOS)  --  Escuchar musica) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 710 Td (Tipo de servidor :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 710 Td (Subsonic / OpenSubsonic) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 692 Td (URL publica      :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 692 Td (https://axcen.tail0f2a47.ts.net) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 674 Td (URL local (casa) :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 674 Td (http://localhost:4533) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 656 Td (Usuario          :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 656 Td (el que creaste en Navidrome) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 638 Td (Contrasena       :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 638 Td (la que configuraste) Tj ET
+0 0 0 rg
+0.231 0.510 0.965 rg 30 606 535 22 re f 0 0 0 rg
+1.000 1.000 1.000 rg
+BT /F1 12 Tf 40 612 Td (WEBQUEUE  --  Subir / descargar musica) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 580 Td (URL publica  :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 580 Td (https://axcen.tail0f2a47.ts.net:8443) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 562 Td (URL local    :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 562 Td (http://localhost:8888) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 544 Td (Acceso       :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 544 Td (Navegador del movil (Safari / Chrome)) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 526 Td (Funciones    :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 526 Td (Pegar URL de YouTube, subir archivos MP3/FLAC) Tj ET
+0 0 0 rg
+0.231 0.510 0.965 rg 30 494 535 22 re f 0 0 0 rg
+1.000 1.000 1.000 rg
+BT /F1 12 Tf 40 500 Td (NAVIDROME ADMIN  --  Panel de administracion) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 468 Td (URL local    :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 468 Td (http://localhost:4533) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 450 Td (Acceso       :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 450 Td (Solo desde el PC (no expuesto publicamente)) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 432 Td (Funciones    :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 432 Td (Gestionar usuarios, escanear biblioteca, playlists) Tj ET
+0 0 0 rg
+0.231 0.510 0.965 rg 30 400 535 22 re f 0 0 0 rg
+1.000 1.000 1.000 rg
+BT /F1 12 Tf 40 406 Td (COMANDOS DE MANTENIMIENTO (PowerShell)) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 374 Td (Iniciar      :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 374 Td (.\start-windows.ps1) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 356 Td (Parar        :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 356 Td (.\stop-windows.ps1) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 338 Td (Actualizar   :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 338 Td (.\update-windows.ps1) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 320 Td (Funnel       :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 320 Td (tailscale funnel --bg http://localhost:4533) Tj ET
+0 0 0 rg
+0.392 0.392 0.392 rg
+BT /F1 10 Tf 50 302 Td (WebQueue     :) Tj ET
+0 0 0 rg
+0.078 0.078 0.078 rg
+BT /F2 10 Tf 200 302 Td (tailscale funnel --bg --https=8443 http://localhost:8888) Tj ET
+0 0 0 rg
+0.961 0.620 0.043 rg 0 0 595 40 re f 0 0 0 rg
+0.118 0.118 0.180 rg
+BT /F1 9 Tf 40 14 Td (NaviBeat: App Store iPhone/iPad  |  Sin VPN ni abrir puertos en el router) Tj ET
+0 0 0 rg
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000251 00000 n 
+0000004282 00000 n 
+0000004379 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+4481
+%%EOF
