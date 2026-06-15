@@ -145,30 +145,11 @@ if (-not $tsDNS) {
 }
 Write-OK "Hostname Tailscale: $tsDNS"
 
-# --- 4. Tailscale Serve para servicios internos (Tailnet) -------------------
+# --- 4. Tailscale Funnel publico (puertos 443, 8443 y 10000) ----------------
 Write-Host ""
-Write-Host "  [4] Configurando Tailscale Serve (acceso via Tailscale VPN)..." -ForegroundColor Yellow
+Write-Host "  [4] Activando Funnel publico (3 servicios)..." -ForegroundColor Yellow
 Write-Host "  ----------------------------------------------------------------" -ForegroundColor DarkGray
-Write-Host "  Nota: para usar estas URLs instala Tailscale en tu movil/PC." -ForegroundColor DarkGray
-Write-Host ""
-
-Write-Info "Serve Lidarr    -> https://${tsDNS}:${LIDARR_PORT}"
-& $tailscaleExe serve --https=$LIDARR_PORT "http://localhost:$LIDARR_PORT"
-Write-Info "Serve Prowlarr  -> https://${tsDNS}:${PROWLARR_PORT}"
-& $tailscaleExe serve --https=$PROWLARR_PORT "http://localhost:$PROWLARR_PORT"
-Write-Info "Serve Soulseek  -> https://${tsDNS}:${SLSKD_PORT}"
-& $tailscaleExe serve --https=$SLSKD_PORT "http://localhost:$SLSKD_PORT"
-Write-Info "Serve Tags      -> https://${tsDNS}:${TAGS_PORT}"
-& $tailscaleExe serve --https=$TAGS_PORT "http://localhost:$TAGS_PORT"
-Write-Info "Serve Homepage  -> https://${tsDNS}:${HOMARR_PORT}"
-& $tailscaleExe serve --https=$HOMARR_PORT "http://localhost:$HOMARR_PORT"
-Write-OK "Serve configurado para todos los servicios."
-
-# --- 5. Tailscale Funnel publico (puertos 443 y 8443) -----------------------
-Write-Host ""
-Write-Host "  [5] Activando Funnel publico (Navidrome + WebQueue)..." -ForegroundColor Yellow
-Write-Host "  ----------------------------------------------------------------" -ForegroundColor DarkGray
-Write-Host "  Tailscale Funnel solo soporta puertos 443, 8443 y 10000." -ForegroundColor DarkGray
+Write-Host "  Tailscale Funnel soporta exactamente los puertos 443, 8443 y 10000." -ForegroundColor DarkGray
 Write-Host ""
 
 Write-Info "Funnel Navidrome -> https://$tsDNS (puerto 443)"
@@ -194,15 +175,23 @@ if ($LASTEXITCODE -ne 0) {
     Write-OK "Funnel WebQueue activo: https://${tsDNS}:8443"
 }
 
+Write-Info "Funnel Homepage  -> https://${tsDNS}:10000"
+& $tailscaleExe funnel --bg --https=10000 "http://localhost:$HOMARR_PORT"
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "No se pudo activar Funnel para Homepage. Continuando..."
+} else {
+    Write-OK "Funnel Homepage activo: https://${tsDNS}:10000"
+}
+
 $publicURL = "https://$tsDNS"
 
-# --- 6. Resumen y actualizar NAVIBEAT-DATOS.txt -----------------------------
+# --- 5. Resumen y actualizar NAVIBEAT-DATOS.txt -----------------------------
 Write-Host ""
 Write-Host "  +======================================================+" -ForegroundColor Green
 Write-Host "  |        TAILSCALE CONFIGURADO                        |" -ForegroundColor Green
 Write-Host "  +======================================================+" -ForegroundColor Green
 Write-Host "  |                                                      |" -ForegroundColor Green
-Write-Host "  |  PUBLICO (sin necesidad de Tailscale en cliente):   |" -ForegroundColor Green
+Write-Host "  |  PUBLICO (accesible desde cualquier red):           |" -ForegroundColor Green
 Write-Host "  |                                                      |" -ForegroundColor Green
 Write-Host "  |  Navidrome (NaviBeat):                              |" -ForegroundColor Green
 Write-Host "  |    $publicURL" -ForegroundColor Cyan
@@ -210,14 +199,15 @@ Write-Host "  |                                                      |" -Foregro
 Write-Host "  |  WebQueue (descarga musica):                        |" -ForegroundColor Green
 Write-Host "  |    https://${tsDNS}:8443" -ForegroundColor Cyan
 Write-Host "  |                                                      |" -ForegroundColor Green
-Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
+Write-Host "  |  Homepage (dashboard):                              |" -ForegroundColor Green
+Write-Host "  |    https://${tsDNS}:10000" -ForegroundColor Cyan
 Write-Host "  |                                                      |" -ForegroundColor Green
-Write-Host "  |  CON TAILSCALE en tu movil/PC (instala la app):    |" -ForegroundColor Green
-Write-Host "  |    Lidarr   -> https://${tsDNS}:$LIDARR_PORT" -ForegroundColor DarkGray
-Write-Host "  |    Prowlarr -> https://${tsDNS}:$PROWLARR_PORT" -ForegroundColor DarkGray
-Write-Host "  |    Soulseek -> https://${tsDNS}:$SLSKD_PORT" -ForegroundColor DarkGray
-Write-Host "  |    Tags     -> https://${tsDNS}:$TAGS_PORT" -ForegroundColor DarkGray
-Write-Host "  |    Homepage -> https://${tsDNS}:$HOMARR_PORT" -ForegroundColor DarkGray
+Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
+Write-Host "  |  Solo en casa (red local):                           |" -ForegroundColor Green
+Write-Host "  |    Lidarr   -> http://localhost:$LIDARR_PORT" -ForegroundColor DarkGray
+Write-Host "  |    Prowlarr -> http://localhost:$PROWLARR_PORT" -ForegroundColor DarkGray
+Write-Host "  |    Soulseek -> http://localhost:$SLSKD_PORT" -ForegroundColor DarkGray
+Write-Host "  |    Tags     -> http://localhost:$TAGS_PORT" -ForegroundColor DarkGray
 Write-Host "  |                                                      |" -ForegroundColor Green
 Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
 Write-Host "  |  En NaviBeat:                                        |" -ForegroundColor Green
@@ -227,7 +217,7 @@ Write-Host "  |    Usuario    : tu usuario de Navidrome              |" -Foregro
 Write-Host "  |    Contrasena : tu contrasena de Navidrome           |" -ForegroundColor Green
 Write-Host "  +======================================================+" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Si reinicias el PC: tailscale serve reset + ejecuta este script." -ForegroundColor DarkGray
+Write-Host "  Si reinicias el PC, ejecuta este script de nuevo." -ForegroundColor DarkGray
 Write-Host ""
 
 # Actualizar NAVIBEAT-DATOS.txt
@@ -236,16 +226,16 @@ $funnelBlock = @"
 
 === ACCESO EXTERNO (Tailscale) ===
 
-PUBLICO -- sin Tailscale en el cliente:
+PUBLICO -- accesible desde cualquier red:
   Navidrome : $publicURL
   WebQueue  : https://${tsDNS}:8443
+  Homepage  : https://${tsDNS}:10000
 
-CON TAILSCALE instalado en tu movil/PC:
-  Lidarr    : https://${tsDNS}:$LIDARR_PORT
-  Prowlarr  : https://${tsDNS}:$PROWLARR_PORT
-  Soulseek  : https://${tsDNS}:$SLSKD_PORT
-  Tags      : https://${tsDNS}:$TAGS_PORT
-  Homepage  : https://${tsDNS}:$HOMARR_PORT
+SOLO EN CASA (red local):
+  Lidarr    : http://localhost:$LIDARR_PORT
+  Prowlarr  : http://localhost:$PROWLARR_PORT
+  Soulseek  : http://localhost:$SLSKD_PORT
+  Tags      : http://localhost:$TAGS_PORT
 
 En NaviBeat:
   Server URL : $publicURL
