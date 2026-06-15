@@ -1784,7 +1784,7 @@ def render_page(flash='', flash_ok=True):
     .then(function(d) {{
       if (d.ok) {{
         st.style.color = '#4ade80';
-        st.textContent = content.trim() ? 'Guardado correctamente' : 'Letra borrada';
+        st.textContent = content.trim() ? 'Guardado. Escanea en Navidrome: Biblioteca → Escanear ahora' : 'Letra borrada';
       }} else {{
         st.style.color = '#f87171';
         st.textContent = 'Error: ' + (d.error || 'desconocido');
@@ -2480,6 +2480,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             if os.path.isfile(lrc):
                 os.remove(lrc)
+        threading.Thread(target=_trigger_scan, daemon=True).start()
         self._json({'ok': True})
 
     def _handle_edit(self):
