@@ -83,10 +83,64 @@ services:
     profiles:
       - lidarr
 
+  homarr:
+    image: ghcr.io/ajnart/homarr:latest
+    container_name: axcen-homarr
+    restart: unless-stopped
+    ports:
+      - "${HOMARR_PORT:-7575}:7575"
+    volumes:
+      - homarr-config:/app/data/configs
+      - homarr-icons:/app/public/icons
+      - /var/run/docker.sock:/var/run/docker.sock
+    profiles:
+      - dashboard
+
+  slskd:
+    image: slskd/slskd:latest
+    container_name: axcen-slskd
+    restart: unless-stopped
+    ports:
+      - "${SLSKD_PORT:-5030}:5030"
+      - "2234:2234"
+    environment:
+      SLSKD_REMOTE_CONFIGURATION: "true"
+      SLSKD_DOWNLOADS_DIR: /music/soulseek
+      SLSKD_SHARED_DIR: /music
+      SLSKD_APP_DIR: /app
+    volumes:
+      - slskd-data:/app
+      - "${MUSIC_DIR:-C:/Music}:/music"
+    profiles:
+      - soulseek
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: axcen-prowlarr
+    restart: unless-stopped
+    ports:
+      - "${PROWLARR_PORT:-9696}:9696"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "${TZ:-Europe/Madrid}"
+    volumes:
+      - prowlarr-config:/config
+    profiles:
+      - lidarr
+
 volumes:
   navidrome-data:
     driver: local
   music-tag-data:
     driver: local
   lidarr-config:
+    driver: local
+  slskd-data:
+    driver: local
+  prowlarr-config:
+    driver: local
+  homarr-config:
+    driver: local
+  homarr-icons:
     driver: local
