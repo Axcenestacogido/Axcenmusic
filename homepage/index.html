@@ -179,7 +179,7 @@
       <div class="card-desc">Red P2P de musica. Ideal para rarezas, lossless y b-sides.</div>
       <div class="card-urls">
         <div class="access-tag access-vpn"><div class="access-dot"></div>Requiere Tailscale</div>
-        <span class="card-url" id="url-slskd-ext">https://axcen.tail0f2a47.ts.net:5030</span>
+        <span class="card-url" id="url-slskd-ext">http://axcen.tail0f2a47.ts.net:5030</span>
         <span class="card-url-local">local: localhost:5030</span>
       </div>
     </a>
@@ -194,7 +194,7 @@
       <div class="card-desc">Anade artistas y descarga automaticamente sus albums con tags correctos.</div>
       <div class="card-urls">
         <div class="access-tag access-vpn"><div class="access-dot"></div>Requiere Tailscale</div>
-        <span class="card-url" id="url-lidarr-ext">https://axcen.tail0f2a47.ts.net:8686</span>
+        <span class="card-url" id="url-lidarr-ext">http://axcen.tail0f2a47.ts.net:8686</span>
         <span class="card-url-local">local: localhost:8686</span>
       </div>
     </a>
@@ -206,7 +206,7 @@
       <div class="card-desc">Gestiona indexadores de torrents y los sincroniza con Lidarr.</div>
       <div class="card-urls">
         <div class="access-tag access-vpn"><div class="access-dot"></div>Requiere Tailscale</div>
-        <span class="card-url" id="url-prowlarr-ext">https://axcen.tail0f2a47.ts.net:9696</span>
+        <span class="card-url" id="url-prowlarr-ext">http://axcen.tail0f2a47.ts.net:9696</span>
         <span class="card-url-local">local: localhost:9696</span>
       </div>
     </a>
@@ -218,7 +218,7 @@
       <div class="card-desc">Edita artista, album, ano y caratula de varios archivos a la vez.</div>
       <div class="card-urls">
         <div class="access-tag access-vpn"><div class="access-dot"></div>Requiere Tailscale</div>
-        <span class="card-url" id="url-tags-ext">https://axcen.tail0f2a47.ts.net:6677</span>
+        <span class="card-url" id="url-tags-ext">http://axcen.tail0f2a47.ts.net:6677</span>
         <span class="card-url-local">local: localhost:6677</span>
       </div>
     </a>
@@ -234,14 +234,14 @@
 
     // Navidrome: Funnel publico en puerto 443 (sin puerto en URL)
     // WebQueue: Funnel publico en puerto 8443
-    // Resto: Tailscale Serve (solo via VPN de Tailscale en el cliente)
+    // Resto: acceso directo HTTP via Tailscale VPN (no necesita tailscale serve)
     var services = {
       "navidrome": { local: "http://localhost:4533",  ext: "https://axcen.tail0f2a47.ts.net" },
       "webqueue":  { local: "http://localhost:8888",  ext: "https://axcen.tail0f2a47.ts.net:8443" },
-      "slskd":     { local: "http://localhost:5030",  ext: "https://axcen.tail0f2a47.ts.net:5030" },
-      "lidarr":    { local: "http://localhost:8686",  ext: "https://axcen.tail0f2a47.ts.net:8686" },
-      "prowlarr":  { local: "http://localhost:9696",  ext: "https://axcen.tail0f2a47.ts.net:9696" },
-      "tags":      { local: "http://localhost:6677",  ext: "https://axcen.tail0f2a47.ts.net:6677" }
+      "slskd":     { local: "http://localhost:5030",  ext: "http://axcen.tail0f2a47.ts.net:5030" },
+      "lidarr":    { local: "http://localhost:8686",  ext: "http://axcen.tail0f2a47.ts.net:8686" },
+      "prowlarr":  { local: "http://localhost:9696",  ext: "http://axcen.tail0f2a47.ts.net:9696" },
+      "tags":      { local: "http://localhost:6677",  ext: "http://axcen.tail0f2a47.ts.net:6677" }
     };
 
     Object.keys(services).forEach(function(key) {
