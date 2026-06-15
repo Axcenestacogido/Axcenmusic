@@ -83,16 +83,14 @@ services:
     profiles:
       - lidarr
 
-  homarr:
-    image: ghcr.io/ajnart/homarr:latest
-    container_name: axcen-homarr
+  homepage:
+    image: nginx:alpine
+    container_name: axcen-homepage
     restart: unless-stopped
     ports:
-      - "${HOMARR_PORT:-7575}:7575"
+      - "${HOMARR_PORT:-7575}:80"
     volumes:
-      - homarr-config:/app/data/configs
-      - homarr-icons:/app/public/icons
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./homepage:/usr/share/nginx/html:ro
     profiles:
       - dashboard
 
@@ -137,8 +135,4 @@ volumes:
   slskd-data:
     driver: local
   prowlarr-config:
-    driver: local
-  homarr-config:
-    driver: local
-  homarr-icons:
     driver: local
