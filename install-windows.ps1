@@ -160,7 +160,7 @@ if ($skipTag.Trim().ToLower() -ne "s") {
         if ($installMp3.Trim().ToLower() -ne "n") {
             Write-Info "Instalando Mp3tag via winget..."
             try {
-                & winget install --id Mp3tag.Mp3tag --silent --accept-package-agreements --accept-source-agreements
+                & winget install --id Mp3tag.Mp3tag --source winget --silent --accept-package-agreements --accept-source-agreements
                 if ($LASTEXITCODE -ne 0) { throw "winget fallo" }
                 $mp3tagExe = $mp3tagPaths | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
                 if ($mp3tagExe) {
@@ -274,10 +274,12 @@ if (-not (Test-Path $composeFile)) {
 try {
     if ($WITH_WEBQUEUE) {
         Write-Info "Construyendo y levantando Navidrome + WebQueue..."
-        & docker compose -f $composeFile --env-file $envFile --profile extras up -d --build 2>&1
+        Write-Info "(La primera vez puede tardar 5-10 min descargando imagenes. Espera...)"
+        & docker compose -f $composeFile --env-file $envFile --profile extras up -d --build
     } else {
         Write-Info "Levantando Navidrome..."
-        & docker compose -f $composeFile --env-file $envFile up -d 2>&1
+        Write-Info "(La primera vez puede tardar 2-5 min descargando la imagen. Espera...)"
+        & docker compose -f $composeFile --env-file $envFile up -d
     }
     if ($LASTEXITCODE -ne 0) { throw "docker compose fallo con codigo $LASTEXITCODE" }
     Write-OK "Contenedores iniciados"
