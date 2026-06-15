@@ -92,7 +92,6 @@ services:
     volumes:
       - homarr-config:/app/data/configs
       - homarr-icons:/app/public/icons
-      - /var/run/docker.sock:/var/run/docker.sock
     profiles:
       - dashboard
 
