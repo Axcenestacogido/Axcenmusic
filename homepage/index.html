@@ -60,29 +60,28 @@
       box-shadow: 0 8px 24px rgba(245,158,11,0.15);
     }
 
-    .card-icon {
-      font-size: 2rem;
-      line-height: 1;
-    }
+    .card-icon { font-size: 2rem; line-height: 1; }
+    .card-name { font-size: 1rem; font-weight: 600; color: #f1f5f9; }
+    .card-desc { font-size: 0.78rem; color: #64748b; line-height: 1.4; }
 
-    .card-name {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #f1f5f9;
-    }
-
-    .card-desc {
-      font-size: 0.78rem;
-      color: #64748b;
-      line-height: 1.4;
-    }
-
-    .card-url {
-      font-size: 0.72rem;
-      color: #f59e0b;
+    .card-urls {
       margin-top: auto;
       padding-top: 0.5rem;
       border-top: 1px solid #2a2a3e;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .card-url {
+      font-size: 0.7rem;
+      color: #f59e0b;
+      word-break: break-all;
+    }
+
+    .card-url-local {
+      font-size: 0.68rem;
+      color: #475569;
       word-break: break-all;
     }
 
@@ -124,66 +123,111 @@
 
   <header>
     <h1>&#9834; AXCENMUSIC</h1>
-    <p>Tu servidor de musica personal</p>
+    <p id="subtitle">Tu servidor de musica personal</p>
   </header>
 
   <section-title>Musica</section-title>
   <div class="grid">
-    <a class="card" href="http://localhost:4533" target="_blank">
+    <a class="card" id="link-navidrome" href="#" target="_blank">
       <div class="card-icon">&#127911;</div>
       <div class="card-name">Navidrome</div>
       <span class="badge badge-stream">Streaming</span>
       <div class="card-desc">Escucha tu biblioteca. Gestiona usuarios, playlists y letras.</div>
-      <div class="card-url">localhost:4533</div>
+      <div class="card-urls">
+        <span class="card-url" id="url-navidrome-ext">https://axcen.tail0f2a47.ts.net:4533</span>
+        <span class="card-url-local">local: localhost:4533</span>
+      </div>
     </a>
 
-    <a class="card" href="http://localhost:8888" target="_blank">
+    <a class="card" id="link-webqueue" href="#" target="_blank">
       <div class="card-icon">&#11015;</div>
       <div class="card-name">WebQueue</div>
       <span class="badge badge-dl">Descarga</span>
       <div class="card-desc">Descarga musica de YouTube, Bandcamp y SoundCloud. Sube archivos.</div>
-      <div class="card-url">localhost:8888</div>
+      <div class="card-urls">
+        <span class="card-url" id="url-webqueue-ext">https://axcen.tail0f2a47.ts.net:8443</span>
+        <span class="card-url-local">local: localhost:8888</span>
+      </div>
     </a>
 
-    <a class="card" href="http://localhost:5030" target="_blank">
+    <a class="card" id="link-slskd" href="#" target="_blank">
       <div class="card-icon">&#128279;</div>
       <div class="card-name">Soulseek</div>
       <span class="badge badge-search">P2P</span>
       <div class="card-desc">Red P2P de musica. Ideal para rarezas, lossless y b-sides.</div>
-      <div class="card-url">localhost:5030</div>
+      <div class="card-urls">
+        <span class="card-url" id="url-slskd-ext">https://axcen.tail0f2a47.ts.net:5030</span>
+        <span class="card-url-local">local: localhost:5030</span>
+      </div>
     </a>
   </div>
 
   <section-title>Biblioteca</section-title>
   <div class="grid">
-    <a class="card" href="http://localhost:8686" target="_blank">
+    <a class="card" id="link-lidarr" href="#" target="_blank">
       <div class="card-icon">&#127889;</div>
       <div class="card-name">Lidarr</div>
       <span class="badge badge-manage">Gestor</span>
       <div class="card-desc">Anade artistas y descarga automaticamente sus albums con tags correctos.</div>
-      <div class="card-url">localhost:8686</div>
+      <div class="card-urls">
+        <span class="card-url" id="url-lidarr-ext">https://axcen.tail0f2a47.ts.net:8686</span>
+        <span class="card-url-local">local: localhost:8686</span>
+      </div>
     </a>
 
-    <a class="card" href="http://localhost:9696" target="_blank">
+    <a class="card" id="link-prowlarr" href="#" target="_blank">
       <div class="card-icon">&#128270;</div>
       <div class="card-name">Prowlarr</div>
       <span class="badge badge-manage">Indexadores</span>
       <div class="card-desc">Gestiona indexadores de torrents y los sincroniza con Lidarr.</div>
-      <div class="card-url">localhost:9696</div>
+      <div class="card-urls">
+        <span class="card-url" id="url-prowlarr-ext">https://axcen.tail0f2a47.ts.net:9696</span>
+        <span class="card-url-local">local: localhost:9696</span>
+      </div>
     </a>
 
-    <a class="card" href="http://localhost:6677" target="_blank">
+    <a class="card" id="link-tags" href="#" target="_blank">
       <div class="card-icon">&#9999;</div>
       <div class="card-name">Editor de Tags</div>
       <span class="badge badge-tag">Tags</span>
       <div class="card-desc">Edita artista, album, ano y caratula de varios archivos a la vez.</div>
-      <div class="card-url">localhost:6677</div>
+      <div class="card-urls">
+        <span class="card-url" id="url-tags-ext">https://axcen.tail0f2a47.ts.net:6677</span>
+        <span class="card-url-local">local: localhost:6677</span>
+      </div>
     </a>
   </div>
 
   <footer>
-    Axcenmusic &mdash; servidor local &bull; NaviBeat en iOS conecta a localhost:4533
+    Axcenmusic &mdash; NaviBeat conecta a <span id="navibeat-url">https://axcen.tail0f2a47.ts.net:4533</span>
   </footer>
+
+  <script>
+    // Detecta si estamos en local o en Tailscale y ajusta los enlaces
+    var isLocal = (location.hostname === "localhost" || location.hostname === "127.0.0.1");
+
+    var services = {
+      "navidrome": { local: "http://localhost:4533",  ext: "https://axcen.tail0f2a47.ts.net:4533" },
+      "webqueue":  { local: "http://localhost:8888",  ext: "https://axcen.tail0f2a47.ts.net:8443" },
+      "slskd":     { local: "http://localhost:5030",  ext: "https://axcen.tail0f2a47.ts.net:5030" },
+      "lidarr":    { local: "http://localhost:8686",  ext: "https://axcen.tail0f2a47.ts.net:8686" },
+      "prowlarr":  { local: "http://localhost:9696",  ext: "https://axcen.tail0f2a47.ts.net:9696" },
+      "tags":      { local: "http://localhost:6677",  ext: "https://axcen.tail0f2a47.ts.net:6677" }
+    };
+
+    Object.keys(services).forEach(function(key) {
+      var svc = services[key];
+      var link = document.getElementById("link-" + key);
+      var urlLabel = document.getElementById("url-" + key + "-ext");
+      if (link) link.href = isLocal ? svc.local : svc.ext;
+      if (urlLabel) urlLabel.textContent = isLocal ? svc.local : svc.ext;
+    });
+
+    if (isLocal) {
+      document.getElementById("subtitle").textContent = "Acceso local";
+      document.getElementById("navibeat-url").textContent = "http://localhost:4533";
+    }
+  </script>
 
 </body>
 </html>
