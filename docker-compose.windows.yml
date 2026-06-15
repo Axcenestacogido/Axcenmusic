@@ -1,0 +1,59 @@
+services:
+  navidrome:
+    image: deluan/navidrome:latest
+    container_name: axcen-navidrome
+    restart: unless-stopped
+    ports:
+      - "${ND_PORT:-4533}:4533"
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_DATAFOLDER: /data
+      ND_SCANSCHEDULE: "${ND_SCAN_SCHEDULE:-@every 1h}"
+      ND_LOGLEVEL: "${ND_LOG_LEVEL:-info}"
+      ND_SESSIONTIMEOUT: "${ND_SESSION_TIMEOUT:-24h}"
+      ND_ENABLETRANSCODINGCONFIG: "true"
+      ND_DEFAULTTHEME: Dark
+      ND_AUTOIMPORTPLAYLISTS: "true"
+      ND_LASTFM_ENABLED: "true"
+      ND_LASTFM_APIKEY: "6607d97679e26a55be344b35fe0ca1c2"
+      ND_LASTFM_SECRET: "a5bf5577ff60e766deb005dcc9db2639"
+      ND_LYRICSPRIORITY: "nd-lyrics,lrclib"
+    volumes:
+      - navidrome-data:/data
+      - "${MUSIC_DIR:-C:/Music}:/music:ro"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4533/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  webqueue:
+    build:
+      context: ./webqueue
+      dockerfile: Dockerfile
+    container_name: axcen-webqueue
+    restart: unless-stopped
+    ports:
+      - "${WEBQUEUE_PORT:-8888}:8888"
+    environment:
+      WEBQUEUE_PORT: "8888"
+      MUSIC_DIR: /music
+      ND_URL: "http://navidrome:4533"
+      ND_ADMIN_USER: "${ND_ADMIN_USER:-}"
+      ND_ADMIN_PASS: "${ND_ADMIN_PASS:-}"
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-500}"
+      NTFY_TOPIC: "${NTFY_TOPIC:-}"
+      SPOTIFY_CLIENT_ID: "${SPOTIFY_CLIENT_ID:-}"
+      SPOTIFY_CLIENT_SECRET: "${SPOTIFY_CLIENT_SECRET:-}"
+    volumes:
+      - "${MUSIC_DIR:-C:/Music}:/music"
+    depends_on:
+      navidrome:
+        condition: service_healthy
+    profiles:
+      - extras
+
+volumes:
+  navidrome-data:
+    driver: local
