@@ -4,30 +4,29 @@
     Instalador de Axcenmusic para Windows (Docker Desktop)
 .DESCRIPTION
     Configura y lanza Navidrome + Webqueue en Docker Desktop.
-    Incluye paso guiado de etiquetado con Mp3tag antes de arrancar el servidor.
-    Al finalizar muestra todos los datos necesarios para conectar NaviBeat.
+    Incluye paso guiado de etiquetado con Mp3tag.
+    Al finalizar muestra todos los datos para conectar NaviBeat.
 #>
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ─── Helpers de salida ────────────────────────────────────────────────────────
 function Write-Header {
     Clear-Host
     Write-Host ""
-    Write-Host "  ██████████████████████████████████████████████" -ForegroundColor Cyan
-    Write-Host "  █                                            █" -ForegroundColor Cyan
-    Write-Host "  █        AXCENMUSIC  —  Instalador          █" -ForegroundColor Cyan
-    Write-Host "  █        Navidrome + NaviBeat en Windows     █" -ForegroundColor Cyan
-    Write-Host "  █                                            █" -ForegroundColor Cyan
-    Write-Host "  ██████████████████████████████████████████████" -ForegroundColor Cyan
+    Write-Host "  ##############################################" -ForegroundColor Cyan
+    Write-Host "  #                                          #" -ForegroundColor Cyan
+    Write-Host "  #       AXCENMUSIC  --  Instalador        #" -ForegroundColor Cyan
+    Write-Host "  #       Navidrome + NaviBeat en Windows    #" -ForegroundColor Cyan
+    Write-Host "  #                                          #" -ForegroundColor Cyan
+    Write-Host "  ##############################################" -ForegroundColor Cyan
     Write-Host ""
 }
 
 function Write-Step { param([string]$Num, [string]$Text)
     Write-Host ""
     Write-Host "  [$Num] $Text" -ForegroundColor Yellow
-    Write-Host "  ────────────────────────────────────────────────" -ForegroundColor DarkGray
+    Write-Host "  ------------------------------------------------" -ForegroundColor DarkGray
 }
 
 function Write-OK   { param([string]$T) Write-Host "  [OK] $T" -ForegroundColor Green  }
@@ -36,7 +35,7 @@ function Write-Warn { param([string]$T) Write-Host "  [!!] $T" -ForegroundColor 
 function Write-Fail { param([string]$T) Write-Host "  [XX] $T" -ForegroundColor Red    }
 function Write-Tip  { param([string]$T) Write-Host "      $T"  -ForegroundColor DarkGray }
 
-# ─── 1. Requisitos ────────────────────────────────────────────────────────────
+# --- 1. Requisitos ------------------------------------------------------------
 Write-Header
 
 Write-Step "1" "Verificando requisitos"
@@ -68,14 +67,13 @@ try {
     exit 1
 }
 
-# ─── 2. Configuración interactiva ─────────────────────────────────────────────
+# --- 2. Configuracion ---------------------------------------------------------
 Write-Step "2" "Configuracion"
 
 Write-Host ""
 Write-Host "  Pulsa ENTER para aceptar el valor por defecto." -ForegroundColor Gray
 Write-Host ""
 
-# Carpeta de música
 $defaultMusic = "C:\Music"
 Write-Host "  Carpeta donde esta tu musica en este PC:" -ForegroundColor White
 Write-Host "  (Ejemplo: D:\Musica, C:\Users\TuNombre\Music)" -ForegroundColor DarkGray
@@ -93,14 +91,12 @@ if (-not (Test-Path $MUSIC_DIR)) {
     Write-OK "Carpeta encontrada: $MUSIC_DIR ($count archivos de audio)"
 }
 
-# Puerto Navidrome
 Write-Host ""
 $defaultPort = "4533"
 $portInput = Read-Host "  > Puerto para Navidrome [$defaultPort]"
 if ([string]::IsNullOrWhiteSpace($portInput)) { $portInput = $defaultPort }
 $ND_PORT = $portInput.Trim()
 
-# WebQueue
 Write-Host ""
 Write-Host "  WebQueue = interfaz web para descargar musica de YouTube" -ForegroundColor DarkGray
 $installWQ = Read-Host "  > Instalar WebQueue tambien? (s/N)"
@@ -125,37 +121,37 @@ if ($WITH_WEBQUEUE) {
     if (-not [string]::IsNullOrWhiteSpace($wqPortInput)) { $WEBQUEUE_PORT = $wqPortInput.Trim() }
 }
 
-# ─── 3. Etiquetar música con Mp3tag ───────────────────────────────────────────
+# --- 3. Etiquetar musica con Mp3tag ------------------------------------------
 Write-Step "3" "Etiquetar musica con Mp3tag  (recomendado)"
 
 Write-Host ""
 Write-Host "  Navidrome organiza tu biblioteca por etiquetas (tags) incrustadas" -ForegroundColor White
-Write-Host "  en cada archivo. Sin etiquetas correctas, todo aparece como" -ForegroundColor White
-Write-Host "  'Artista desconocido' en NaviBeat." -ForegroundColor White
+Write-Host "  en cada archivo. Sin etiquetas, todo aparece como artista" -ForegroundColor White
+Write-Host "  desconocido en NaviBeat." -ForegroundColor White
 Write-Host ""
 Write-Host "  Mp3tag es gratuito y edita en bloque como una tabla Excel." -ForegroundColor Gray
 Write-Host "  En 20 minutos tienes toda tu coleccion bien organizada." -ForegroundColor Gray
 Write-Host ""
-
 Write-Host "  Campos clave para NaviBeat:" -ForegroundColor Cyan
-Write-Tip "  TITLE   → nombre de la cancion (ej. 'Bohemian Rhapsody')"
-Write-Tip "  ARTIST  → interprete (ej. 'Queen')"
-Write-Tip "  ALBUM   → nombre del album (ej. 'A Night at the Opera')"
-Write-Tip "  YEAR    → año de lanzamiento (ej. '1975')"
-Write-Tip "  TRACK   → numero de pista (ej. '11')"
-Write-Tip "  COVER   → carátula del album (boton derecho → Extended Tags)"
+Write-Tip "TITLE   -> nombre de la cancion (ej. Bohemian Rhapsody)"
+Write-Tip "ARTIST  -> interprete           (ej. Queen)"
+Write-Tip "ALBUM   -> nombre del album     (ej. A Night at the Opera)"
+Write-Tip "YEAR    -> anio de lanzamiento  (ej. 1975)"
+Write-Tip "TRACK   -> numero de pista      (ej. 11)"
+Write-Tip "COVER   -> caratula del album   (boton derecho -> Extended Tags)"
 Write-Host ""
 
 $skipTag = Read-Host "  > Saltar este paso? Ya tengo mis archivos bien etiquetados (s/N)"
 if ($skipTag.Trim().ToLower() -ne "s") {
 
-    # ── Buscar Mp3tag instalado ──────────────────────────────────────────────
+    # Buscar Mp3tag instalado
+    $pf86     = [System.Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
     $mp3tagPaths = @(
-        "$env:ProgramFiles\Mp3tag\Mp3tag.exe",
-        "${env:ProgramFiles(x86)}\Mp3tag\Mp3tag.exe",
-        "$env:LOCALAPPDATA\Programs\Mp3tag\Mp3tag.exe"
+        (Join-Path $env:ProgramFiles "Mp3tag\Mp3tag.exe"),
+        (Join-Path $pf86 "Mp3tag\Mp3tag.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Mp3tag\Mp3tag.exe")
     )
-    $mp3tagExe = $mp3tagPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+    $mp3tagExe = $mp3tagPaths | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 
     if (-not $mp3tagExe) {
         Write-Warn "Mp3tag no esta instalado."
@@ -165,20 +161,19 @@ if ($skipTag.Trim().ToLower() -ne "s") {
             Write-Info "Instalando Mp3tag via winget..."
             try {
                 & winget install --id Mp3tag.Mp3tag --silent --accept-package-agreements --accept-source-agreements
-                if ($LASTEXITCODE -ne 0) { throw }
-                # Volver a buscar tras instalación
-                $mp3tagExe = $mp3tagPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+                if ($LASTEXITCODE -ne 0) { throw "winget fallo" }
+                $mp3tagExe = $mp3tagPaths | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
                 if ($mp3tagExe) {
                     Write-OK "Mp3tag instalado en: $mp3tagExe"
                 } else {
-                    Write-Warn "Instalado pero no encontrado en la ruta estandar."
+                    Write-Warn "Instalado pero no encontrado en ruta estandar."
                     Write-Warn "Abrelo manualmente desde el menu Inicio."
                     $mp3tagExe = $null
                 }
             } catch {
                 Write-Warn "No se pudo instalar via winget."
                 Write-Host ""
-                Write-Host "  Descargalo manualmente e instalalo:" -ForegroundColor White
+                Write-Host "  Descargalo manualmente desde:" -ForegroundColor White
                 Write-Host "  https://www.mp3tag.de/en/download.html" -ForegroundColor Cyan
                 Write-Host ""
                 Write-Host "  Despues abrelo, arrastra la carpeta '$MUSIC_DIR'" -ForegroundColor Gray
@@ -193,29 +188,26 @@ if ($skipTag.Trim().ToLower() -ne "s") {
         Write-OK "Mp3tag encontrado: $mp3tagExe"
     }
 
-    # ── Abrir Mp3tag con la carpeta de música ───────────────────────────────
     if ($mp3tagExe) {
         Write-Host ""
-        Write-Host "  ┌─────────────────────────────────────────────────────┐" -ForegroundColor Cyan
-        Write-Host "  │  GUIA RAPIDA DE MP3TAG                              │" -ForegroundColor Cyan
-        Write-Host "  │                                                     │" -ForegroundColor Cyan
-        Write-Host "  │  1. Se abrira Mp3tag con tu carpeta cargada         │" -ForegroundColor Cyan
-        Write-Host "  │  2. Ctrl+A para seleccionar todos los archivos      │" -ForegroundColor Cyan
-        Write-Host "  │  3. Edita las columnas directamente (como Excel)    │" -ForegroundColor Cyan
-        Write-Host "  │  4. Para poner caratula: boton derecho en           │" -ForegroundColor Cyan
-        Write-Host "  │     un archivo → Extended Tags → COVER              │" -ForegroundColor Cyan
-        Write-Host "  │  5. Ctrl+S para guardar todos los cambios           │" -ForegroundColor Cyan
-        Write-Host "  │  6. Cierra Mp3tag cuando termines                   │" -ForegroundColor Cyan
-        Write-Host "  └─────────────────────────────────────────────────────┘" -ForegroundColor Cyan
+        Write-Host "  +-----------------------------------------------------+" -ForegroundColor Cyan
+        Write-Host "  |  GUIA RAPIDA DE MP3TAG                              |" -ForegroundColor Cyan
+        Write-Host "  |                                                     |" -ForegroundColor Cyan
+        Write-Host "  |  1. Mp3tag se abrira con tu carpeta cargada         |" -ForegroundColor Cyan
+        Write-Host "  |  2. Ctrl+A para seleccionar todos los archivos      |" -ForegroundColor Cyan
+        Write-Host "  |  3. Edita las columnas directamente (como Excel)    |" -ForegroundColor Cyan
+        Write-Host "  |  4. Caratula: boton derecho -> Extended Tags        |" -ForegroundColor Cyan
+        Write-Host "  |  5. Ctrl+S para guardar todos los cambios           |" -ForegroundColor Cyan
+        Write-Host "  |  6. Cierra Mp3tag cuando termines                   |" -ForegroundColor Cyan
+        Write-Host "  +-----------------------------------------------------+" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  Abriendo Mp3tag con tu carpeta de musica..." -ForegroundColor Gray
 
-        # /fp:"ruta" carga la carpeta al arrancar
         Start-Process -FilePath $mp3tagExe -ArgumentList "/fp:`"$MUSIC_DIR`""
 
         Write-Host ""
         Write-Host "  Cuando termines de etiquetar y hayas cerrado Mp3tag," -ForegroundColor White
-        Write-Host "  vuelve aqui y pulsa ENTER para continuar con la instalacion." -ForegroundColor White
+        Write-Host "  vuelve aqui y pulsa ENTER para continuar." -ForegroundColor White
         Write-Host ""
         Read-Host "  Pulsa ENTER cuando hayas terminado de etiquetar"
         Write-OK "Listo. Continuando con la instalacion..."
@@ -225,7 +217,7 @@ if ($skipTag.Trim().ToLower() -ne "s") {
     Write-OK "Paso de etiquetado omitido."
 }
 
-# ─── 4. Detectar IP local ─────────────────────────────────────────────────────
+# --- 4. Detectar IP local -----------------------------------------------------
 Write-Step "4" "Detectando red local"
 
 $localIP = (Get-NetIPAddress -AddressFamily IPv4 |
@@ -237,16 +229,15 @@ if (-not $localIP) { $localIP = "localhost" }
 Write-OK "IP local detectada: $localIP"
 Write-Tip "(Esta es la URL que usara NaviBeat para conectar)"
 
-# ─── 5. Crear archivo .env ────────────────────────────────────────────────────
+# --- 5. Crear archivo .env ----------------------------------------------------
 Write-Step "5" "Creando archivo de configuracion (.env)"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$envFile    = Join-Path $scriptDir ".env"
-
+$scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
+$envFile     = Join-Path $scriptDir ".env"
 $MUSIC_DIR_DOCKER = $MUSIC_DIR.Replace("\", "/")
+
 $envContent = @"
-# Generado por install-windows.ps1
-# $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+# Generado por install-windows.ps1 -- $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 
 MUSIC_DIR=$MUSIC_DIR_DOCKER
 ND_PORT=$ND_PORT
@@ -269,7 +260,7 @@ SPOTIFY_CLIENT_SECRET=
 Set-Content -Path $envFile -Value $envContent -Encoding UTF8
 Write-OK ".env creado en: $envFile"
 
-# ─── 6. Lanzar Docker Compose ─────────────────────────────────────────────────
+# --- 6. Lanzar Docker Compose -------------------------------------------------
 Write-Step "6" "Lanzando servicios Docker"
 
 $composeFile = Join-Path $scriptDir "docker-compose.windows.yml"
@@ -292,12 +283,11 @@ try {
     Write-OK "Contenedores iniciados"
 } catch {
     Write-Fail "Error al lanzar Docker Compose: $_"
-    Write-Host ""
     Write-Host "  Revisa que Docker Desktop este corriendo y vuelve a intentarlo." -ForegroundColor Gray
     exit 1
 }
 
-# ─── 7. Esperar a que Navidrome este listo ────────────────────────────────────
+# --- 7. Esperar que Navidrome arranque ----------------------------------------
 Write-Step "7" "Esperando que Navidrome arranque"
 
 Write-Info "Esperando hasta 90 segundos..."
@@ -317,13 +307,13 @@ while ($elapsed -lt $maxWait) {
 }
 
 if ($ready) {
-    Write-OK "Navidrome esta listo y respondiendo!"
+    Write-OK "Navidrome esta listo!"
 } else {
     Write-Warn "Navidrome tarda mas de lo normal. Puede que aun este arrancando."
     Write-Info "Abre http://localhost:$ND_PORT en el navegador en unos segundos."
 }
 
-# ─── 8. Crear usuario admin en Navidrome (primera vez) ───────────────────────
+# --- 8. Crear usuario admin (primera vez) ------------------------------------
 if ($WITH_WEBQUEUE -and $ND_ADMIN_USER -and $ready) {
     Write-Step "8" "Configurando usuario admin en Navidrome"
     Write-Info "Abre http://localhost:$ND_PORT en el navegador."
@@ -336,85 +326,76 @@ if ($WITH_WEBQUEUE -and $ND_ADMIN_USER -and $ready) {
     Read-Host "  Pulsa ENTER cuando hayas creado el usuario en el navegador"
 }
 
-# ─── 9. Resumen final ─────────────────────────────────────────────────────────
+# --- 9. Resumen final ---------------------------------------------------------
 Write-Host ""
 Write-Host ""
-Write-Host "  ╔══════════════════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "  ║         AXCENMUSIC INSTALADO CORRECTAMENTE          ║" -ForegroundColor Green
-Write-Host "  ╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ║  DATOS PARA NAVIBEAT (iOS)                          ║" -ForegroundColor Green
-Write-Host "  ║  ─────────────────────────────────────────────────  ║" -ForegroundColor Green
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ║  NaviBeat > Ajustes > Agregar servidor              ║" -ForegroundColor Green
-Write-Host "  ║  Tipo: Subsonic / OpenSubsonic                      ║" -ForegroundColor Green
-Write-Host "  ║                                                      ║" -ForegroundColor Green
+Write-Host "  +======================================================+" -ForegroundColor Green
+Write-Host "  |        AXCENMUSIC INSTALADO CORRECTAMENTE           |" -ForegroundColor Green
+Write-Host "  +======================================================+" -ForegroundColor Green
+Write-Host "  |                                                      |" -ForegroundColor Green
+Write-Host "  |  DATOS PARA NAVIBEAT (iOS)                          |" -ForegroundColor Green
+Write-Host "  |  -------------------------------------------------  |" -ForegroundColor Green
+Write-Host "  |                                                      |" -ForegroundColor Green
+Write-Host "  |  NaviBeat -> Ajustes -> Agregar servidor            |" -ForegroundColor Green
+Write-Host "  |  Tipo: Subsonic / OpenSubsonic                      |" -ForegroundColor Green
+Write-Host "  |                                                      |" -ForegroundColor Green
 
 $serverURL = "http://${localIP}:${ND_PORT}"
 $pad = " " * [Math]::Max(0, 50 - $serverURL.Length)
-Write-Host "  ║  URL del servidor:                                   ║" -ForegroundColor Green
-Write-Host "  ║    $serverURL$pad║" -ForegroundColor Cyan
+Write-Host "  |  URL del servidor:                                   |" -ForegroundColor Green
+Write-Host "  |    $serverURL$pad|" -ForegroundColor Cyan
 if ($localIP -ne "localhost") {
     $localURL = "http://localhost:$ND_PORT"
     $pad2 = " " * [Math]::Max(0, 50 - $localURL.Length)
-    Write-Host "  ║    $localURL$pad2║" -ForegroundColor DarkGray
-    Write-Host "  ║    (la segunda solo funciona en este mismo PC)       ║" -ForegroundColor DarkGray
+    Write-Host "  |    $localURL$pad2|" -ForegroundColor DarkGray
+    Write-Host "  |    (la segunda solo funciona en este mismo PC)       |" -ForegroundColor DarkGray
 }
-Write-Host "  ║                                                      ║" -ForegroundColor Green
+Write-Host "  |                                                      |" -ForegroundColor Green
 
 if ($WITH_WEBQUEUE -and $ND_ADMIN_USER) {
     $upad = " " * [Math]::Max(0, 44 - $ND_ADMIN_USER.Length)
-    Write-Host "  ║  Usuario:    $ND_ADMIN_USER$upad║" -ForegroundColor Green
-    Write-Host "  ║  Contrasena: (la que configuraste)                  ║" -ForegroundColor Green
+    Write-Host "  |  Usuario:    $ND_ADMIN_USER$upad|" -ForegroundColor Green
+    Write-Host "  |  Contrasena: (la que configuraste)                  |" -ForegroundColor Green
 } else {
-    Write-Host "  ║  Usuario:    el que crees en la primera apertura    ║" -ForegroundColor Green
-    Write-Host "  ║              -> abre http://localhost:$ND_PORT           ║" -ForegroundColor Green
+    Write-Host "  |  Usuario:    el que crees en la primera apertura    |" -ForegroundColor Green
+    Write-Host "  |              -> abre http://localhost:$ND_PORT          |" -ForegroundColor Green
 }
 
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ║  INTERFACES WEB                                      ║" -ForegroundColor Green
-Write-Host "  ║    Navidrome : http://localhost:$ND_PORT                  ║" -ForegroundColor Green
+Write-Host "  |                                                      |" -ForegroundColor Green
+Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
+Write-Host "  |  INTERFACES WEB                                      |" -ForegroundColor Green
+Write-Host "  |    Navidrome : http://localhost:$ND_PORT                 |" -ForegroundColor Green
 if ($WITH_WEBQUEUE) {
-    Write-Host "  ║    WebQueue  : http://localhost:$WEBQUEUE_PORT                  ║" -ForegroundColor Green
+    Write-Host "  |    WebQueue  : http://localhost:$WEBQUEUE_PORT                 |" -ForegroundColor Green
 }
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ║  CARPETA DE MUSICA                                   ║" -ForegroundColor Green
+Write-Host "  |                                                      |" -ForegroundColor Green
+Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
+Write-Host "  |  CARPETA DE MUSICA                                   |" -ForegroundColor Green
 $mpad = " " * [Math]::Max(0, 50 - $MUSIC_DIR.Length)
-Write-Host "  ║    $MUSIC_DIR$mpad║" -ForegroundColor Cyan
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ╠══════════════════════════════════════════════════════╣" -ForegroundColor Green
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ║  COMANDOS UTILES (desde PowerShell en esta carpeta) ║" -ForegroundColor Green
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ║  Ver logs:    docker logs axcen-navidrome -f         ║" -ForegroundColor DarkGray
-Write-Host "  ║  Parar:       .\stop-windows.ps1                     ║" -ForegroundColor DarkGray
-Write-Host "  ║  Iniciar:     .\start-windows.ps1                    ║" -ForegroundColor DarkGray
-Write-Host "  ║  Actualizar:  .\update-windows.ps1                   ║" -ForegroundColor DarkGray
-Write-Host "  ║                                                      ║" -ForegroundColor Green
-Write-Host "  ╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
+Write-Host "  |    $MUSIC_DIR$mpad|" -ForegroundColor Cyan
+Write-Host "  |                                                      |" -ForegroundColor Green
+Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
+Write-Host "  |  COMANDOS UTILES (PowerShell en esta carpeta)       |" -ForegroundColor Green
+Write-Host "  |    .\start-windows.ps1   -- encender                |" -ForegroundColor DarkGray
+Write-Host "  |    .\stop-windows.ps1    -- apagar                  |" -ForegroundColor DarkGray
+Write-Host "  |    .\update-windows.ps1  -- actualizar Navidrome    |" -ForegroundColor DarkGray
+Write-Host "  +======================================================+" -ForegroundColor Green
 Write-Host ""
 
-# ─── Guardar resumen ──────────────────────────────────────────────────────────
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# --- Guardar resumen en NAVIBEAT-DATOS.txt ------------------------------------
 $summaryFile = Join-Path $scriptDir "NAVIBEAT-DATOS.txt"
-
-# Pre-calcular valores condicionales para evitar if/else dentro del here-string
 $summaryFecha = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
 if ($WITH_WEBQUEUE -and $ND_ADMIN_USER) {
     $summaryCredenciales = "  Usuario          : $ND_ADMIN_USER`r`n  Contrasena       : (la que configuraste)"
 } else {
-    $summaryCredenciales = "  Usuario          : el que crees en la primera apertura`r`n                     abrir http://localhost:${ND_PORT}"
+    $summaryCredenciales = "  Usuario          : el que crees en la primera apertura`r`n                     abre http://localhost:${ND_PORT}"
 }
 if ($WITH_WEBQUEUE) {
     $summaryWebqueue = "  WebQueue (descargas) : http://localhost:${WEBQUEUE_PORT}"
 } else {
     $summaryWebqueue = ""
 }
-$summaryMusicDir = $MUSIC_DIR
 
 $summary = @"
 ========================================================
@@ -438,18 +419,18 @@ $summaryWebqueue
 
 CARPETA DE MUSICA
 -----------------
-  $summaryMusicDir
+  $MUSIC_DIR
 
-ETIQUETAR MAS MUSICA (Mp3tag)
-------------------------------
+ETIQUETAR MUSICA (Mp3tag)
+--------------------------
   1. Abre Mp3tag
   2. Arrastra la carpeta de musica a la ventana
   3. Edita las columnas: Title, Artist, Album, Year, Track
-  4. Para caratulas: boton derecho -> Extended Tags -> COVER
+  4. Caratulas: boton derecho -> Extended Tags -> COVER
   5. Ctrl+S para guardar
   6. En Navidrome: Biblioteca -> Escanear ahora
 
-  Campos clave para NaviBeat:
+  Campos clave:
     TITLE   = nombre de la cancion
     ARTIST  = interprete
     ALBUM   = nombre del album
@@ -459,33 +440,30 @@ ETIQUETAR MAS MUSICA (Mp3tag)
 
 COMANDOS UTILES
 ---------------
-  Ver logs de Navidrome:
+  Ver logs:
     docker logs axcen-navidrome -f
 
-  Parar todos los servicios:
+  Parar:
     docker compose -f docker-compose.windows.yml down
 
-  Volver a iniciar:
+  Iniciar:
     docker compose -f docker-compose.windows.yml up -d
 
   Actualizar Navidrome:
     docker compose -f docker-compose.windows.yml pull
     docker compose -f docker-compose.windows.yml up -d
 
-  Forzar rescan (tras etiquetar mas musica):
-    Navidrome admin -> Biblioteca -> Escanear ahora
-
 PASOS PARA NAVIBEAT (primera vez)
 -----------------------------------
   1. Descarga NaviBeat en el App Store (iPhone/iPad)
   2. Abre la app -> icono de ajustes (engranaje)
-  3. Selecciona "Add Server" / "Agregar servidor"
-  4. Elige tipo: "Subsonic" o "OpenSubsonic"
+  3. Selecciona Add Server / Agregar servidor
+  4. Elige tipo: Subsonic o OpenSubsonic
   5. Rellena:
        Server URL : http://${localIP}:${ND_PORT}
        Username   : tu usuario de Navidrome
        Password   : tu contrasena de Navidrome
-  6. Pulsa "Test Connection" -- debe decir OK
+  6. Pulsa Test Connection -- debe decir OK
   7. Guarda y disfruta tu musica!
 
 NOTA
@@ -501,7 +479,7 @@ Set-Content -Path $summaryFile -Value $summary -Encoding UTF8
 Write-Host "  Resumen guardado en:" -ForegroundColor DarkGray
 Write-Host "  $summaryFile" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Abriendo el resumen..." -ForegroundColor DarkGray
+Write-Host "  Abriendo el resumen en Notepad..." -ForegroundColor DarkGray
 Start-Process notepad.exe $summaryFile
 
 Write-Host ""
