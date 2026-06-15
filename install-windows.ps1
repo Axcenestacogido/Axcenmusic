@@ -302,7 +302,7 @@ while ($elapsed -lt $maxWait) {
     Start-Sleep -Seconds $interval
     $elapsed += $interval
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:$ND_PORT/ping" -TimeoutSec 3 -ErrorAction Stop
+        $response = Invoke-WebRequest -Uri "http://localhost:$ND_PORT/ping" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($response.StatusCode -eq 200) { $ready = $true; break }
     } catch { }
     Write-Host "  Esperando... ($elapsed s)" -ForegroundColor DarkGray
