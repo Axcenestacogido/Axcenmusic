@@ -135,14 +135,8 @@ Write-Host ""
 Write-Host "  [4] Activando Tailscale Funnel en puerto $ND_PORT..." -ForegroundColor Yellow
 Write-Host "  ------------------------------------------------" -ForegroundColor DarkGray
 
-Write-Info "Configurando Tailscale Serve (proxy HTTPS -> localhost:$ND_PORT)..."
-& $tailscaleExe serve --bg https / "http://localhost:$ND_PORT"
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "Serve ya configurado o error menor. Continuando..."
-}
-
-Write-Info "Activando Funnel (exposicion publica)..."
-& $tailscaleExe funnel --bg https on
+Write-Info "Activando Tailscale Funnel en localhost:$ND_PORT..."
+& $tailscaleExe funnel --bg "http://localhost:$ND_PORT"
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "No se pudo activar Funnel."
     Write-Host ""
