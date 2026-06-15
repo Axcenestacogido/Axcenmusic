@@ -501,12 +501,37 @@ def _run_lyrics(folder):
         pass
 
 
+# ── Embeber letra en tags del archivo de audio ───────────────────────────────
+def _embed_lyrics_tag(path, lrc_content):
+    """Escribe la letra como tag en el archivo de audio via ffmpeg."""
+    plain = '\n'.join(
+        re.sub(r'^\[[^\]]+\]', '', line).strip()
+        for line in lrc_content.split('\n')
+        if re.sub(r'^\[[^\]]+\]', '', line).strip()
+    )
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp_path = tmp.name
+        result = subprocess.run(
+            ['ffmpeg', '-y', '-i', path, '-c', 'copy', '-metadata', f'lyrics={plain}', tmp_path],
+            capture_output=True, timeout=60
+        )
+        if result.returncode == 0 and os.path.getsize(tmp_path) > 0:
+            shutil.move(tmp_path, path)
+        elif os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except Exception:
+        pass
+
+
 # ── Trigger scan en Navidrome ─────────────────────────────────────────────────
-def _trigger_scan():
+def _trigger_scan(full=False):
     if not ND_ADMIN_USER or not ND_ADMIN_PASS:
         return False, 'ND_ADMIN_USER / ND_ADMIN_PASS no configurados en .env'
     url = (f'{ND_URL}/rest/startScan.view'
-           f'?u={ND_ADMIN_USER}&p={ND_ADMIN_PASS}&v=1.16.1&c=webqueue&f=json')
+           f'?u={ND_ADMIN_USER}&p={ND_ADMIN_PASS}&v=1.16.1&c=webqueue&f=json'
+           + ('&fullScan=true' if full else ''))
     try:
         with urllib.request.urlopen(url, timeout=5) as r:
             return True, 'Escaneo iniciado'
@@ -2480,7 +2505,9 @@ class Handler(BaseHTTPRequestHandler):
         else:
             if os.path.isfile(lrc):
                 os.remove(lrc)
-        threading.Thread(target=_trigger_scan, daemon=True).start()
+        # Embed plain text in audio tags so Navidrome picks it up on next quick scan
+        threading.Thread(target=_embed_lyrics_tag, args=(p, content), daemon=True).start()
+        threading.Thread(target=lambda: _trigger_scan(full=True), daemon=True).start()
         self._json({'ok': True})
 
     def _handle_edit(self):
