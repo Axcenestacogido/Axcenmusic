@@ -55,7 +55,7 @@ services:
       - extras
 
   music-tag-web:
-    image: xhongc/music-tag-web:latest
+    image: ghcr.io/xhongc/music-tag-web:latest
     container_name: axcen-music-tag
     restart: unless-stopped
     ports:
