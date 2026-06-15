@@ -100,6 +100,26 @@
     .badge-tag     { background: #b45309; color: #fde68a; }
     .badge-search  { background: #0f766e; color: #99f6e4; }
 
+    .access-tag {
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 2px;
+    }
+    .access-public { color: #22c55e; }
+    .access-vpn    { color: #60a5fa; }
+    .access-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+
     section-title {
       display: block;
       max-width: 900px;
@@ -134,7 +154,8 @@
       <span class="badge badge-stream">Streaming</span>
       <div class="card-desc">Escucha tu biblioteca. Gestiona usuarios, playlists y letras.</div>
       <div class="card-urls">
-        <span class="card-url" id="url-navidrome-ext">https://axcen.tail0f2a47.ts.net:4533</span>
+        <div class="access-tag access-public"><div class="access-dot"></div>Publico</div>
+        <span class="card-url" id="url-navidrome-ext">https://axcen.tail0f2a47.ts.net</span>
         <span class="card-url-local">local: localhost:4533</span>
       </div>
     </a>
@@ -145,6 +166,7 @@
       <span class="badge badge-dl">Descarga</span>
       <div class="card-desc">Descarga musica de YouTube, Bandcamp y SoundCloud. Sube archivos.</div>
       <div class="card-urls">
+        <div class="access-tag access-public"><div class="access-dot"></div>Publico</div>
         <span class="card-url" id="url-webqueue-ext">https://axcen.tail0f2a47.ts.net:8443</span>
         <span class="card-url-local">local: localhost:8888</span>
       </div>
@@ -156,6 +178,7 @@
       <span class="badge badge-search">P2P</span>
       <div class="card-desc">Red P2P de musica. Ideal para rarezas, lossless y b-sides.</div>
       <div class="card-urls">
+        <div class="access-tag access-vpn"><div class="access-dot"></div>Requiere Tailscale</div>
         <span class="card-url" id="url-slskd-ext">https://axcen.tail0f2a47.ts.net:5030</span>
         <span class="card-url-local">local: localhost:5030</span>
       </div>
@@ -170,6 +193,7 @@
       <span class="badge badge-manage">Gestor</span>
       <div class="card-desc">Anade artistas y descarga automaticamente sus albums con tags correctos.</div>
       <div class="card-urls">
+        <div class="access-tag access-vpn"><div class="access-dot"></div>Requiere Tailscale</div>
         <span class="card-url" id="url-lidarr-ext">https://axcen.tail0f2a47.ts.net:8686</span>
         <span class="card-url-local">local: localhost:8686</span>
       </div>
@@ -181,6 +205,7 @@
       <span class="badge badge-manage">Indexadores</span>
       <div class="card-desc">Gestiona indexadores de torrents y los sincroniza con Lidarr.</div>
       <div class="card-urls">
+        <div class="access-tag access-vpn"><div class="access-dot"></div>Requiere Tailscale</div>
         <span class="card-url" id="url-prowlarr-ext">https://axcen.tail0f2a47.ts.net:9696</span>
         <span class="card-url-local">local: localhost:9696</span>
       </div>
@@ -192,6 +217,7 @@
       <span class="badge badge-tag">Tags</span>
       <div class="card-desc">Edita artista, album, ano y caratula de varios archivos a la vez.</div>
       <div class="card-urls">
+        <div class="access-tag access-vpn"><div class="access-dot"></div>Requiere Tailscale</div>
         <span class="card-url" id="url-tags-ext">https://axcen.tail0f2a47.ts.net:6677</span>
         <span class="card-url-local">local: localhost:6677</span>
       </div>
@@ -199,15 +225,18 @@
   </div>
 
   <footer>
-    Axcenmusic &mdash; NaviBeat conecta a <span id="navibeat-url">https://axcen.tail0f2a47.ts.net:4533</span>
+    Axcenmusic &mdash; NaviBeat conecta a <span id="navibeat-url">https://axcen.tail0f2a47.ts.net</span>
   </footer>
 
   <script>
     // Detecta si estamos en local o en Tailscale y ajusta los enlaces
     var isLocal = (location.hostname === "localhost" || location.hostname === "127.0.0.1");
 
+    // Navidrome: Funnel publico en puerto 443 (sin puerto en URL)
+    // WebQueue: Funnel publico en puerto 8443
+    // Resto: Tailscale Serve (solo via VPN de Tailscale en el cliente)
     var services = {
-      "navidrome": { local: "http://localhost:4533",  ext: "https://axcen.tail0f2a47.ts.net:4533" },
+      "navidrome": { local: "http://localhost:4533",  ext: "https://axcen.tail0f2a47.ts.net" },
       "webqueue":  { local: "http://localhost:8888",  ext: "https://axcen.tail0f2a47.ts.net:8443" },
       "slskd":     { local: "http://localhost:5030",  ext: "https://axcen.tail0f2a47.ts.net:5030" },
       "lidarr":    { local: "http://localhost:8686",  ext: "https://axcen.tail0f2a47.ts.net:8686" },
@@ -226,6 +255,8 @@
     if (isLocal) {
       document.getElementById("subtitle").textContent = "Acceso local";
       document.getElementById("navibeat-url").textContent = "http://localhost:4533";
+    } else {
+      document.getElementById("subtitle").textContent = "Acceso externo via Tailscale";
     }
   </script>
 

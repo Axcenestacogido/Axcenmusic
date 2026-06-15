@@ -1,11 +1,12 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Configura Tailscale Funnel para exponer Navidrome publicamente via HTTPS.
+    Configura Tailscale para exponer todos los servicios de Axcenmusic.
 .DESCRIPTION
-    Instala Tailscale (si no esta), autentica, activa Funnel en el puerto
-    de Navidrome y muestra la URL publica para usar en NaviBeat desde
-    cualquier red (datos moviles, WiFi ajena, etc.).
+    - Navidrome : Funnel publico en puerto 443 (para NaviBeat sin VPN)
+    - WebQueue  : Funnel publico en puerto 8443
+    - Resto     : Tailscale Serve (acceso Tailnet, requiere Tailscale en cliente)
+    Nota: Tailscale Funnel solo soporta los puertos 443, 8443 y 10000.
 #>
 
 Set-StrictMode -Version Latest
@@ -19,11 +20,24 @@ function Write-Fail { param([string]$T) Write-Host "  [XX] $T" -ForegroundColor 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $envFile   = Join-Path $scriptDir ".env"
 
-# --- Leer puerto de Navidrome desde .env ------------------------------------
-$ND_PORT = "4533"
+# --- Leer puertos desde .env ------------------------------------------------
+$ND_PORT       = "4533"
+$WEBQUEUE_PORT = "8888"
+$LIDARR_PORT   = "8686"
+$PROWLARR_PORT = "9696"
+$SLSKD_PORT    = "5030"
+$TAGS_PORT     = "6677"
+$HOMARR_PORT   = "7575"
 if (Test-Path $envFile) {
-    $envLine = (Get-Content $envFile | Where-Object { $_ -match "^ND_PORT=" }) | Select-Object -First 1
-    if ($envLine) { $ND_PORT = $envLine -replace "^ND_PORT=", "" }
+    Get-Content $envFile | ForEach-Object {
+        if ($_ -match "^ND_PORT=(.+)")          { $ND_PORT = $Matches[1] }
+        if ($_ -match "^WEBQUEUE_PORT=(.+)")    { $WEBQUEUE_PORT = $Matches[1] }
+        if ($_ -match "^LIDARR_PORT=(.+)")      { $LIDARR_PORT = $Matches[1] }
+        if ($_ -match "^PROWLARR_PORT=(.+)")    { $PROWLARR_PORT = $Matches[1] }
+        if ($_ -match "^SLSKD_PORT=(.+)")       { $SLSKD_PORT = $Matches[1] }
+        if ($_ -match "^MUSIC_TAG_PORT=(.+)")   { $TAGS_PORT = $Matches[1] }
+        if ($_ -match "^HOMARR_PORT=(.+)")      { $HOMARR_PORT = $Matches[1] }
+    }
 }
 
 Write-Host ""
@@ -31,8 +45,9 @@ Write-Host "  ##############################################" -ForegroundColor C
 Write-Host "  #   AXCENMUSIC -- Tailscale Funnel Setup   #" -ForegroundColor Cyan
 Write-Host "  ##############################################" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Tailscale Funnel crea una URL publica HTTPS para" -ForegroundColor Gray
-Write-Host "  Navidrome accesible desde cualquier red o pais." -ForegroundColor Gray
+Write-Host "  Expone todos los servicios de Axcenmusic via Tailscale." -ForegroundColor Gray
+Write-Host "  Navidrome y WebQueue: publicos sin VPN." -ForegroundColor Gray
+Write-Host "  Resto: accesibles con Tailscale instalado en tu movil/PC." -ForegroundColor Gray
 Write-Host ""
 
 # --- 1. Verificar / instalar Tailscale --------------------------------------
@@ -130,15 +145,36 @@ if (-not $tsDNS) {
 }
 Write-OK "Hostname Tailscale: $tsDNS"
 
-# --- 4. Activar Tailscale Serve + Funnel ------------------------------------
+# --- 4. Tailscale Serve para servicios internos (Tailnet) -------------------
 Write-Host ""
-Write-Host "  [4] Activando Tailscale Funnel en puerto $ND_PORT..." -ForegroundColor Yellow
-Write-Host "  ------------------------------------------------" -ForegroundColor DarkGray
+Write-Host "  [4] Configurando Tailscale Serve (acceso via Tailscale VPN)..." -ForegroundColor Yellow
+Write-Host "  ----------------------------------------------------------------" -ForegroundColor DarkGray
+Write-Host "  Nota: para usar estas URLs instala Tailscale en tu movil/PC." -ForegroundColor DarkGray
+Write-Host ""
 
-Write-Info "Activando Tailscale Funnel en localhost:$ND_PORT..."
-& $tailscaleExe funnel --bg "http://localhost:$ND_PORT"
+Write-Info "Serve Lidarr    -> https://${tsDNS}:${LIDARR_PORT}"
+& $tailscaleExe serve --https=$LIDARR_PORT "http://localhost:$LIDARR_PORT"
+Write-Info "Serve Prowlarr  -> https://${tsDNS}:${PROWLARR_PORT}"
+& $tailscaleExe serve --https=$PROWLARR_PORT "http://localhost:$PROWLARR_PORT"
+Write-Info "Serve Soulseek  -> https://${tsDNS}:${SLSKD_PORT}"
+& $tailscaleExe serve --https=$SLSKD_PORT "http://localhost:$SLSKD_PORT"
+Write-Info "Serve Tags      -> https://${tsDNS}:${TAGS_PORT}"
+& $tailscaleExe serve --https=$TAGS_PORT "http://localhost:$TAGS_PORT"
+Write-Info "Serve Homepage  -> https://${tsDNS}:${HOMARR_PORT}"
+& $tailscaleExe serve --https=$HOMARR_PORT "http://localhost:$HOMARR_PORT"
+Write-OK "Serve configurado para todos los servicios."
+
+# --- 5. Tailscale Funnel publico (puertos 443 y 8443) -----------------------
+Write-Host ""
+Write-Host "  [5] Activando Funnel publico (Navidrome + WebQueue)..." -ForegroundColor Yellow
+Write-Host "  ----------------------------------------------------------------" -ForegroundColor DarkGray
+Write-Host "  Tailscale Funnel solo soporta puertos 443, 8443 y 10000." -ForegroundColor DarkGray
+Write-Host ""
+
+Write-Info "Funnel Navidrome -> https://$tsDNS (puerto 443)"
+& $tailscaleExe funnel --bg --https=443 "http://localhost:$ND_PORT"
 if ($LASTEXITCODE -ne 0) {
-    Write-Fail "No se pudo activar Funnel."
+    Write-Fail "No se pudo activar Funnel para Navidrome."
     Write-Host ""
     Write-Host "  Requisitos para Tailscale Funnel:" -ForegroundColor White
     Write-Host "   - La cuenta debe tener Funnel habilitado" -ForegroundColor Gray
@@ -148,22 +184,40 @@ if ($LASTEXITCODE -ne 0) {
     Read-Host "  Pulsa ENTER para salir"
     exit 1
 }
+Write-OK "Funnel Navidrome activo: https://$tsDNS"
+
+Write-Info "Funnel WebQueue  -> https://${tsDNS}:8443"
+& $tailscaleExe funnel --bg --https=8443 "http://localhost:$WEBQUEUE_PORT"
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "No se pudo activar Funnel para WebQueue. Continuando..."
+} else {
+    Write-OK "Funnel WebQueue activo: https://${tsDNS}:8443"
+}
 
 $publicURL = "https://$tsDNS"
-Write-OK "Funnel activo: $publicURL"
 
-# --- 5. Resumen y actualizar NAVIBEAT-DATOS.txt -----------------------------
+# --- 6. Resumen y actualizar NAVIBEAT-DATOS.txt -----------------------------
 Write-Host ""
 Write-Host "  +======================================================+" -ForegroundColor Green
-Write-Host "  |        TAILSCALE FUNNEL CONFIGURADO                 |" -ForegroundColor Green
+Write-Host "  |        TAILSCALE CONFIGURADO                        |" -ForegroundColor Green
 Write-Host "  +======================================================+" -ForegroundColor Green
 Write-Host "  |                                                      |" -ForegroundColor Green
-Write-Host "  |  URL PUBLICA (usa esta en NaviBeat):                |" -ForegroundColor Green
-$pad = " " * [Math]::Max(0, 50 - $publicURL.Length)
-Write-Host "  |    $publicURL$pad|" -ForegroundColor Cyan
+Write-Host "  |  PUBLICO (sin necesidad de Tailscale en cliente):   |" -ForegroundColor Green
 Write-Host "  |                                                      |" -ForegroundColor Green
-Write-Host "  |  Accesible desde cualquier red / pais               |" -ForegroundColor Green
-Write-Host "  |  Sin VPN, sin abrir puertos en el router            |" -ForegroundColor Green
+Write-Host "  |  Navidrome (NaviBeat):                              |" -ForegroundColor Green
+Write-Host "  |    $publicURL" -ForegroundColor Cyan
+Write-Host "  |                                                      |" -ForegroundColor Green
+Write-Host "  |  WebQueue (descarga musica):                        |" -ForegroundColor Green
+Write-Host "  |    https://${tsDNS}:8443" -ForegroundColor Cyan
+Write-Host "  |                                                      |" -ForegroundColor Green
+Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
+Write-Host "  |                                                      |" -ForegroundColor Green
+Write-Host "  |  CON TAILSCALE en tu movil/PC (instala la app):    |" -ForegroundColor Green
+Write-Host "  |    Lidarr   -> https://${tsDNS}:$LIDARR_PORT" -ForegroundColor DarkGray
+Write-Host "  |    Prowlarr -> https://${tsDNS}:$PROWLARR_PORT" -ForegroundColor DarkGray
+Write-Host "  |    Soulseek -> https://${tsDNS}:$SLSKD_PORT" -ForegroundColor DarkGray
+Write-Host "  |    Tags     -> https://${tsDNS}:$TAGS_PORT" -ForegroundColor DarkGray
+Write-Host "  |    Homepage -> https://${tsDNS}:$HOMARR_PORT" -ForegroundColor DarkGray
 Write-Host "  |                                                      |" -ForegroundColor Green
 Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
 Write-Host "  |  En NaviBeat:                                        |" -ForegroundColor Green
@@ -173,43 +227,47 @@ Write-Host "  |    Usuario    : tu usuario de Navidrome              |" -Foregro
 Write-Host "  |    Contrasena : tu contrasena de Navidrome           |" -ForegroundColor Green
 Write-Host "  +======================================================+" -ForegroundColor Green
 Write-Host ""
-Write-Host "  NOTA: si apagas o reinicias el PC, ejecuta:" -ForegroundColor DarkGray
-Write-Host "    tailscale funnel --bg https on" -ForegroundColor DarkGray
-Write-Host "  para reactivar el Funnel." -ForegroundColor DarkGray
+Write-Host "  Si reinicias el PC: tailscale serve reset + ejecuta este script." -ForegroundColor DarkGray
 Write-Host ""
 
 # Actualizar NAVIBEAT-DATOS.txt
 $summaryFile = Join-Path $scriptDir "NAVIBEAT-DATOS.txt"
 $funnelBlock = @"
 
-URL PUBLICA (Tailscale Funnel) -- desde cualquier red
-------------------------------------------------------
-  $publicURL
+=== ACCESO EXTERNO (Tailscale) ===
 
-  En NaviBeat:
-    Server URL : $publicURL
-    Tipo       : Subsonic / OpenSubsonic
-    Usuario    : tu usuario de Navidrome
-    Contrasena : tu contrasena de Navidrome
+PUBLICO -- sin Tailscale en el cliente:
+  Navidrome : $publicURL
+  WebQueue  : https://${tsDNS}:8443
 
-  Para reactivar Funnel tras reiniciar el PC:
-    tailscale funnel --bg https on
+CON TAILSCALE instalado en tu movil/PC:
+  Lidarr    : https://${tsDNS}:$LIDARR_PORT
+  Prowlarr  : https://${tsDNS}:$PROWLARR_PORT
+  Soulseek  : https://${tsDNS}:$SLSKD_PORT
+  Tags      : https://${tsDNS}:$TAGS_PORT
+  Homepage  : https://${tsDNS}:$HOMARR_PORT
+
+En NaviBeat:
+  Server URL : $publicURL
+  Tipo       : Subsonic / OpenSubsonic
+  Usuario    : tu usuario de Navidrome
+  Contrasena : tu contrasena de Navidrome
 
 "@
 
+$summaryFile = Join-Path $scriptDir "NAVIBEAT-DATOS.txt"
 if (Test-Path $summaryFile) {
     $existing = Get-Content $summaryFile -Raw
-    if ($existing -notmatch "Tailscale Funnel") {
+    if ($existing -notmatch "ACCESO EXTERNO") {
         Add-Content -Path $summaryFile -Value $funnelBlock -Encoding UTF8
-        Write-OK "NAVIBEAT-DATOS.txt actualizado con la URL publica."
+        Write-OK "NAVIBEAT-DATOS.txt actualizado con las URLs externas."
     } else {
-        # Reemplazar URL anterior si ya existia
         $existing = $existing -replace "https://[^\s]+\.ts\.net", $publicURL
         Set-Content -Path $summaryFile -Value $existing -Encoding UTF8
         Write-OK "NAVIBEAT-DATOS.txt actualizado."
     }
 }
 
-Start-Process notepad.exe $summaryFile
+if (Test-Path $summaryFile) { Start-Process notepad.exe $summaryFile }
 Write-Host ""
 Read-Host "  Pulsa ENTER para salir"
