@@ -54,6 +54,39 @@ services:
     profiles:
       - extras
 
+  music-tag-web:
+    image: xhongc/music-tag-web:latest
+    container_name: axcen-music-tag
+    restart: unless-stopped
+    ports:
+      - "${MUSIC_TAG_PORT:-6677}:6677"
+    volumes:
+      - "${MUSIC_DIR:-C:/Music}:/app/media"
+      - music-tag-data:/app/data
+    profiles:
+      - tags
+
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: axcen-lidarr
+    restart: unless-stopped
+    ports:
+      - "${LIDARR_PORT:-8686}:8686"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "${TZ:-Europe/Madrid}"
+    volumes:
+      - lidarr-config:/config
+      - "${MUSIC_DIR:-C:/Music}:/music"
+      - "${DOWNLOADS_DIR:-C:/Music/downloads}:/downloads"
+    profiles:
+      - lidarr
+
 volumes:
   navidrome-data:
+    driver: local
+  music-tag-data:
+    driver: local
+  lidarr-config:
     driver: local
