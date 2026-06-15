@@ -368,7 +368,7 @@ if ($WITH_WEBQUEUE -and $ND_ADMIN_USER) {
     Write-Host "  ║  Contrasena: (la que configuraste)                  ║" -ForegroundColor Green
 } else {
     Write-Host "  ║  Usuario:    el que crees en la primera apertura    ║" -ForegroundColor Green
-    Write-Host "  ║              → abre http://localhost:$ND_PORT           ║" -ForegroundColor Green
+    Write-Host "  ║              -> abre http://localhost:$ND_PORT           ║" -ForegroundColor Green
 }
 
 Write-Host "  ║                                                      ║" -ForegroundColor Green
@@ -401,53 +401,64 @@ Write-Host ""
 # ─── Guardar resumen ──────────────────────────────────────────────────────────
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $summaryFile = Join-Path $scriptDir "NAVIBEAT-DATOS.txt"
+
+# Pre-calcular valores condicionales para evitar if/else dentro del here-string
+$summaryFecha = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+if ($WITH_WEBQUEUE -and $ND_ADMIN_USER) {
+    $summaryCredenciales = "  Usuario          : $ND_ADMIN_USER`r`n  Contrasena       : (la que configuraste)"
+} else {
+    $summaryCredenciales = "  Usuario          : el que crees en la primera apertura`r`n                     abrir http://localhost:${ND_PORT}"
+}
+if ($WITH_WEBQUEUE) {
+    $summaryWebqueue = "  WebQueue (descargas) : http://localhost:${WEBQUEUE_PORT}"
+} else {
+    $summaryWebqueue = ""
+}
+$summaryMusicDir = $MUSIC_DIR
+
 $summary = @"
 ========================================================
-  AXCENMUSIC — Datos de conexion para NaviBeat
-  Generado: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+  AXCENMUSIC -- Datos de conexion para NaviBeat
+  Generado: $summaryFecha
 ========================================================
 
 DATOS PARA NAVIBEAT (iOS)
-─────────────────────────
-Abre NaviBeat → Ajustes → Agregar servidor
+--------------------------
+Abre NaviBeat -> Ajustes -> Agregar servidor
 Selecciona tipo: Subsonic / OpenSubsonic
 
   URL del servidor : http://${localIP}:${ND_PORT}
   URL (local PC)   : http://localhost:${ND_PORT}
-$(if ($WITH_WEBQUEUE -and $ND_ADMIN_USER) {
-    "  Usuario          : $ND_ADMIN_USER`n  Contrasena       : (la que configuraste)"
-} else {
-    "  Usuario          : el que crees en la primera apertura`n                     → abre http://localhost:${ND_PORT}"
-})
+$summaryCredenciales
 
 INTERFACES WEB
-──────────────
+--------------
   Navidrome (admin)    : http://localhost:${ND_PORT}
-$(if ($WITH_WEBQUEUE) { "  WebQueue (descargas) : http://localhost:${WEBQUEUE_PORT}" })
+$summaryWebqueue
 
 CARPETA DE MUSICA
-─────────────────
-  $MUSIC_DIR
+-----------------
+  $summaryMusicDir
 
 ETIQUETAR MAS MUSICA (Mp3tag)
-──────────────────────────────
+------------------------------
   1. Abre Mp3tag
-  2. Arrastra '$MUSIC_DIR' a la ventana
+  2. Arrastra la carpeta de musica a la ventana
   3. Edita las columnas: Title, Artist, Album, Year, Track
-  4. Para caratulas: boton derecho → Extended Tags → COVER
+  4. Para caratulas: boton derecho -> Extended Tags -> COVER
   5. Ctrl+S para guardar
-  6. En Navidrome: Biblioteca → Escanear ahora
+  6. En Navidrome: Biblioteca -> Escanear ahora
 
   Campos clave para NaviBeat:
     TITLE   = nombre de la cancion
     ARTIST  = interprete
     ALBUM   = nombre del album
-    YEAR    = año de lanzamiento
+    YEAR    = anio de lanzamiento
     TRACK   = numero de pista
     COVER   = caratula (imagen incrustada en el archivo)
 
 COMANDOS UTILES
-───────────────
+---------------
   Ver logs de Navidrome:
     docker logs axcen-navidrome -f
 
@@ -461,24 +472,24 @@ COMANDOS UTILES
     docker compose -f docker-compose.windows.yml pull
     docker compose -f docker-compose.windows.yml up -d
 
-  Forzar rescan de biblioteca (tras etiquetar mas musica):
-    Navidrome admin → Biblioteca → Escanear ahora
+  Forzar rescan (tras etiquetar mas musica):
+    Navidrome admin -> Biblioteca -> Escanear ahora
 
 PASOS PARA NAVIBEAT (primera vez)
-──────────────────────────────────
+-----------------------------------
   1. Descarga NaviBeat en el App Store (iPhone/iPad)
-  2. Abre la app → icono de ajustes (engranaje)
+  2. Abre la app -> icono de ajustes (engranaje)
   3. Selecciona "Add Server" / "Agregar servidor"
   4. Elige tipo: "Subsonic" o "OpenSubsonic"
   5. Rellena:
        Server URL : http://${localIP}:${ND_PORT}
        Username   : tu usuario de Navidrome
        Password   : tu contrasena de Navidrome
-  6. Pulsa "Test Connection" → debe decir OK
+  6. Pulsa "Test Connection" -- debe decir OK
   7. Guarda y disfruta tu musica!
 
 NOTA
-────
+----
   - NaviBeat conecta si el iPhone esta en la misma red WiFi que este PC
   - Para acceso desde fuera de casa instala Tailscale en PC + iPhone
   - Si la IP cambia, asigna IP fija al PC en el router (DHCP reservation)
