@@ -19,7 +19,7 @@ services:
       ND_LASTFM_SECRET: "a5bf5577ff60e766deb005dcc9db2639"
       ND_LYRICSPRIORITY: "nd-lyrics,lrclib"
     volumes:
-      - navidrome-data:/data
+      - "${ND_DATA_DIR:-./navidrome-data}:/data"
       - "${MUSIC_DIR:-C:/Music}:/music:ro"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:4533/ping"]
@@ -55,7 +55,7 @@ services:
       - extras
 
   music-tag-web:
-    image: xhongc/music-tag-web:latest
+    image: ghcr.io/xhongc/music-tag-web:latest
     container_name: axcen-music-tag
     restart: unless-stopped
     ports:
@@ -130,8 +130,6 @@ services:
       - lidarr
 
 volumes:
-  navidrome-data:
-    driver: local
   music-tag-data:
     driver: local
   lidarr-config:
