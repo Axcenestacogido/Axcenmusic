@@ -1279,6 +1279,29 @@ def render_page(flash='', flash_ok=True):
     </div>
   </div>
 
+  <!-- ── MODAL LETRAS ── -->
+  <div id="lyrics-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);
+       z-index:100;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#27272a;border-radius:14px;padding:20px;width:100%;max-width:560px;
+                max-height:90vh;display:flex;flex-direction:column;gap:8px">
+      <div style="color:#f59e0b;font-weight:700;font-size:1.1rem">Letras (LRC)</div>
+      <div id="lyrics-song-name" style="color:#a1a1aa;font-size:.85rem"></div>
+      <input type="hidden" id="lyrics-path">
+      <div style="font-size:.72rem;color:#71717a">Formato: [mm:ss.xx]linea de letra &nbsp;|&nbsp; Deja vacio para borrar el archivo</div>
+      <textarea id="lyrics-content"
+        style="flex:1;min-height:300px;background:#18181b;color:#e2e8f0;
+               border:1px solid #3f3f46;border-radius:8px;padding:10px;
+               font-family:monospace;font-size:.82rem;resize:vertical;line-height:1.6"
+        placeholder="[00:12.00]Primera linea&#10;[00:17.20]Segunda linea&#10;[00:21.50]Tercera linea"></textarea>
+      <div id="lyrics-status" style="font-size:.8rem;color:#a1a1aa;min-height:18px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" style="flex:1" onclick="saveLyrics()">Guardar</button>
+        <button class="btn-scan" style="padding:11px 14px;color:#f87171" onclick="clearLyrics()">Borrar letra</button>
+        <button class="btn-scan" style="padding:11px 18px" onclick="closeLyricsModal()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── MINI PLAYER ── -->
   <div id="player" style="display:none;position:fixed;bottom:0;left:0;right:0;
     background:#1c1917;border-top:1px solid #3f3f46;padding:10px 16px;
@@ -1557,6 +1580,7 @@ def render_page(flash='', flash_ok=True):
                  + '</div>'
                  + '<button class="btn-sm" style="padding:5px 8px" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" data-ar="' + escHtml(s.ar) + '" onclick="playSong(this.dataset.p,this.dataset.t,this.dataset.ar,this.dataset.p)">&#9654;</button>'
                  + '<button class="btn-sm" style="padding:5px 8px" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" data-ar="' + escHtml(s.ar) + '" data-al="' + escHtml(s.al) + '" data-ge="' + escHtml(s.ge) + '" onclick="openEdit(this.dataset.p,this.dataset.t,this.dataset.ar,this.dataset.al,this.dataset.ge)">&#9998;</button>'
+                 + '<button class="btn-sm" style="padding:5px 8px;color:#a78bfa" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" onclick="openLyrics(this.dataset.p,this.dataset.t)">&#9834;</button>'
                  + '<button class="btn-sm" style="padding:5px 8px;color:#f87171" data-p="' + escHtml(s.p) + '" data-t="' + escHtml(s.t) + '" onclick="deleteSong(this.dataset.p,this.dataset.t)">&#128465;</button>'
                  + '</div>';
         }}
@@ -1724,6 +1748,60 @@ def render_page(flash='', flash_ok=True):
     }} catch(e) {{
       alert('Error de red');
     }}
+  }}
+
+  // ── Letras LRC ────────────────────────────────────────────────────
+  function openLyrics(pathB64, title) {{
+    document.getElementById('lyrics-path').value = pathB64;
+    document.getElementById('lyrics-song-name').textContent = title || '';
+    document.getElementById('lyrics-content').value = '';
+    document.getElementById('lyrics-status').textContent = 'Cargando...';
+    document.getElementById('lyrics-status').style.color = '#a1a1aa';
+    document.getElementById('lyrics-modal').style.display = 'flex';
+    fetch('/lyrics?p=' + encodeURIComponent(pathB64))
+      .then(function(r) {{ return r.json(); }})
+      .then(function(d) {{
+        document.getElementById('lyrics-content').value = d.content || '';
+        document.getElementById('lyrics-status').textContent = d.content ? 'Letra cargada' : 'Sin letra todavia — pega o escribe el LRC arriba';
+      }})
+      .catch(function() {{
+        document.getElementById('lyrics-status').textContent = 'Error al cargar';
+        document.getElementById('lyrics-status').style.color = '#f87171';
+      }});
+  }}
+  function saveLyrics() {{
+    const p       = document.getElementById('lyrics-path').value;
+    const content = document.getElementById('lyrics-content').value;
+    const st      = document.getElementById('lyrics-status');
+    st.style.color = '#a1a1aa';
+    st.textContent = 'Guardando...';
+    fetch('/lyrics', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{path: p, content: content}})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(d) {{
+      if (d.ok) {{
+        st.style.color = '#4ade80';
+        st.textContent = content.trim() ? 'Guardado correctamente' : 'Letra borrada';
+      }} else {{
+        st.style.color = '#f87171';
+        st.textContent = 'Error: ' + (d.error || 'desconocido');
+      }}
+    }})
+    .catch(function() {{
+      st.style.color = '#f87171';
+      st.textContent = 'Error de red';
+    }});
+  }}
+  function clearLyrics() {{
+    if (!confirm('Borrar el archivo de letra de esta cancion?')) return;
+    document.getElementById('lyrics-content').value = '';
+    saveLyrics();
+  }}
+  function closeLyricsModal() {{
+    document.getElementById('lyrics-modal').style.display = 'none';
   }}
 
   // ── Mini player ───────────────────────────────────────────────────
@@ -2085,6 +2163,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_artist_cover_get(qs)
         elif parsed.path == '/stream':
             self._handle_stream(qs)
+        elif parsed.path == '/lyrics':
+            self._handle_lyrics_get(qs)
         else:
             flash = unquote_plus(qs.get('flash', [''])[0])
             ok    = qs.get('ok', ['1'])[0] == '1'
@@ -2111,6 +2191,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_spotify()
         elif path == '/ytdlp-update':
             self._handle_ytdlp_update()
+        elif path == '/lyrics':
+            self._handle_lyrics_post()
         elif path == '/artist-cover':
             self._handle_artist_cover_post()
         else:
@@ -2366,6 +2448,39 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(1)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
+
+    def _handle_lyrics_get(self, qs):
+        p = _safe_path(qs.get('p', [''])[0])
+        if not p or not os.path.isfile(p):
+            self._json({'ok': False, 'content': ''}); return
+        lrc = os.path.splitext(p)[0] + '.lrc'
+        if os.path.isfile(lrc):
+            with open(lrc, 'r', encoding='utf-8', errors='replace') as f:
+                self._json({'ok': True, 'content': f.read()})
+        else:
+            self._json({'ok': True, 'content': ''})
+
+    def _handle_lyrics_post(self):
+        length = int(self.headers.get('Content-Length', 0))
+        if length > 500_000:
+            self._json({'ok': False, 'error': 'Demasiado grande'}); return
+        body = self.rfile.read(length)
+        try:
+            data = json.loads(body)
+        except Exception:
+            self._json({'ok': False, 'error': 'JSON invalido'}); return
+        p = _safe_path(data.get('path', ''))
+        if not p or not os.path.isfile(p):
+            self._json({'ok': False, 'error': 'Archivo no encontrado'}); return
+        content = data.get('content', '')
+        lrc = os.path.splitext(p)[0] + '.lrc'
+        if content.strip():
+            with open(lrc, 'w', encoding='utf-8') as f:
+                f.write(content)
+        else:
+            if os.path.isfile(lrc):
+                os.remove(lrc)
+        self._json({'ok': True})
 
     def _handle_edit(self):
         content_type = self.headers.get('Content-Type', '')
