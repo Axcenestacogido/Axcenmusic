@@ -503,7 +503,7 @@ def _run_lyrics(folder):
 
 # ── Embeber letra en tags del archivo de audio ───────────────────────────────
 def _embed_lyrics_tag(path, lrc_content):
-    """Escribe la letra como tag en el archivo de audio via ffmpeg."""
+    """Escribe la letra como USLT/Vorbis tag via mutagen (tag estandar que lee Navidrome)."""
     plain = '\n'.join(
         re.sub(r'^\[[^\]]+\]', '', line).strip()
         for line in lrc_content.split('\n')
@@ -511,16 +511,40 @@ def _embed_lyrics_tag(path, lrc_content):
     )
     ext = os.path.splitext(path)[1].lower()
     try:
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp_path = tmp.name
-        result = subprocess.run(
-            ['ffmpeg', '-y', '-i', path, '-c', 'copy', '-metadata', f'lyrics={plain}', tmp_path],
-            capture_output=True, timeout=60
-        )
-        if result.returncode == 0 and os.path.getsize(tmp_path) > 0:
-            shutil.move(tmp_path, path)
-        elif os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if ext == '.mp3':
+            from mutagen.id3 import ID3, USLT, ID3NoHeaderError
+            try:
+                tags = ID3(path)
+            except ID3NoHeaderError:
+                tags = ID3()
+            tags.delall('USLT')
+            if plain:
+                tags.add(USLT(encoding=3, lang='eng', desc='', text=plain))
+            tags.save(path, v2_version=3)
+        elif ext == '.flac':
+            from mutagen.flac import FLAC
+            audio = FLAC(path)
+            if plain:
+                audio['lyrics'] = [plain]
+            elif 'lyrics' in audio:
+                del audio['lyrics']
+            audio.save()
+        elif ext in ('.ogg', '.opus'):
+            from mutagen.oggvorbis import OggVorbis
+            audio = OggVorbis(path)
+            if plain:
+                audio['lyrics'] = [plain]
+            elif 'lyrics' in audio:
+                del audio['lyrics']
+            audio.save()
+        elif ext in ('.m4a', '.aac', '.mp4'):
+            from mutagen.mp4 import MP4
+            audio = MP4(path)
+            if plain:
+                audio['\xa9lyr'] = [plain]
+            elif '\xa9lyr' in audio:
+                del audio['\xa9lyr']
+            audio.save()
     except Exception:
         pass
 
