@@ -502,11 +502,12 @@ def _run_lyrics(folder):
 
 
 # ── Trigger scan en Navidrome ─────────────────────────────────────────────────
-def _trigger_scan():
+def _trigger_scan(full=False):
     if not ND_ADMIN_USER or not ND_ADMIN_PASS:
         return False, 'ND_ADMIN_USER / ND_ADMIN_PASS no configurados en .env'
     url = (f'{ND_URL}/rest/startScan.view'
-           f'?u={ND_ADMIN_USER}&p={ND_ADMIN_PASS}&v=1.16.1&c=webqueue&f=json')
+           f'?u={ND_ADMIN_USER}&p={ND_ADMIN_PASS}&v=1.16.1&c=webqueue&f=json'
+           + ('&fullScan=true' if full else ''))
     try:
         with urllib.request.urlopen(url, timeout=5) as r:
             return True, 'Escaneo iniciado'
@@ -2480,7 +2481,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             if os.path.isfile(lrc):
                 os.remove(lrc)
-        threading.Thread(target=_trigger_scan, daemon=True).start()
+        threading.Thread(target=lambda: _trigger_scan(full=True), daemon=True).start()
         self._json({'ok': True})
 
     def _handle_edit(self):
