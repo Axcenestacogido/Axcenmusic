@@ -28,3 +28,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  homepage:
+    image: nginx:alpine
+    container_name: axcen-homepage
+    restart: unless-stopped
+    ports:
+      - "${HOMEPAGE_PORT:-7575}:80"
+    volumes:
+      - "./homepage:/usr/share/nginx/html:ro"
