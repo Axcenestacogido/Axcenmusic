@@ -180,3 +180,40 @@ tailscale ip -4
 # Forzar escaneo de biblioteca (API)
 curl -X POST "http://localhost:4533/rest/startScan.view?u=admin&p=PASSWORD&v=1.16.1&c=cli&f=json"
 ```
+
+---
+
+## Acceso a todas las apps desde un solo icono (Home Screen)
+
+El panel `homepage/index.html` agrupa tarjetas a Navidrome, WebQueue, Lidarr,
+Prowlarr, Soulseek y el editor de tags. Se despliega como contenedor
+`axcen-homepage` (puerto `HOMEPAGE_PORT`, por defecto `7575`).
+
+1. Ejecuta `sudo bash scripts/09-setup-funnel.sh` (publica Navidrome en 443,
+   WebQueue en 8443 y el panel en 10000).
+2. En el iPhone, abre Safari en `https://<tu-tailnet>.ts.net:10000`.
+3. Compartir → **Añadir a pantalla de inicio**.
+
+Ese único icono abre el panel con tarjetas a todas las apps; las que
+requieren Tailscale (Lidarr, Prowlarr, Soulseek, tags) solo funcionarán
+con la VPN activa en el iPhone.
+
+## Una canción "vieja" sigue sonando tras subir una versión nueva
+
+Esto no es un fallo de Navidrome: pasa por caché, no por datos corruptos.
+
+1. **Sube el archivo nuevo con el mismo nombre/ruta** (sobrescribiendo) o,
+   mejor, borra primero el archivo viejo por SFTP y luego sube el nuevo.
+2. **Fuerza un escaneo completo** (no incremental):
+   ```bash
+   curl -X POST "http://localhost:4533/rest/startScan.view?u=admin&p=PASSWORD&v=1.16.1&c=cli&f=json&fullScan=true"
+   ```
+3. **Limpia la caché del cliente** (Amperfy/NaviBeat/navegador): la app
+   suele cachear el audio descargado. Borra la canción de "descargas
+   offline" en la app y/o cierra y reabre la app para que vuelva a pedir
+   el stream al servidor.
+4. Si usas el navegador, fuerza recarga sin caché (Cmd/Ctrl+Shift+R) o
+   borra los datos de sitio de Navidrome.
+5. Comprueba en Navidrome (Música → busca la canción → "..." → info) que
+   la ruta y el tamaño del archivo corresponden a la versión nueva; si no,
+   el escaneo aún no detectó el cambio.

@@ -20,6 +20,8 @@ step()  { echo -e "\n${CYAN}▶ $*${NC}"; }
 [[ $EUID -ne 0 ]] && error "Ejecutar con sudo: sudo bash scripts/09-setup-funnel.sh"
 
 ND_PORT="${ND_PORT:-4533}"
+WEBQUEUE_PORT="${WEBQUEUE_PORT:-8888}"
+HOMEPAGE_PORT="${HOMEPAGE_PORT:-7575}"
 
 # ── 1. Verificar Tailscale ────────────────────────────────────────
 step "Verificando Tailscale"
@@ -54,15 +56,25 @@ read -rp "  ¿Ya están activados? (s/N): " CONFIRM
 [[ "${CONFIRM,,}" != "s" ]] && { warn "Actívalos primero y vuelve a ejecutar este script."; exit 0; }
 
 # ── 3. Activar Funnel ─────────────────────────────────────────────
-step "Activando Tailscale Funnel en el puerto ${ND_PORT}"
+step "Activando Tailscale Funnel"
 
 # Quitar configuración previa si existe
 tailscale serve reset 2>/dev/null || true
 
-# Exponer Navidrome via Funnel
-tailscale funnel --bg "${ND_PORT}" \
-  && info "Funnel activado correctamente." \
+# Exponer Navidrome via Funnel (puerto público 443)
+tailscale funnel --bg --https=443 "${ND_PORT}" \
+  && info "Navidrome publicado en el puerto 443." \
   || error "No se pudo activar el Funnel. Asegúrate de haber habilitado 'funnel' en el ACL de Tailscale."
+
+# Exponer WebQueue via Funnel (puerto público 8443)
+tailscale funnel --bg --https=8443 "${WEBQUEUE_PORT}" \
+  && info "WebQueue publicado en el puerto 8443." \
+  || warn "No se pudo publicar WebQueue en el puerto 8443."
+
+# Exponer el hub (homepage) via Funnel (puerto público 10000)
+tailscale funnel --bg --https=10000 "${HOMEPAGE_PORT}" \
+  && info "Panel de inicio publicado en el puerto 10000." \
+  || warn "No se pudo publicar el panel de inicio en el puerto 10000."
 
 # ── 4. Obtener URL pública ────────────────────────────────────────
 step "Obteniendo URL pública"
@@ -89,8 +101,12 @@ Requires=tailscaled.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/tailscale funnel --bg ${ND_PORT}
-ExecStop=/usr/bin/tailscale funnel --bg --off ${ND_PORT}
+ExecStart=/usr/bin/tailscale funnel --bg --https=443 ${ND_PORT}
+ExecStart=/usr/bin/tailscale funnel --bg --https=8443 ${WEBQUEUE_PORT}
+ExecStart=/usr/bin/tailscale funnel --bg --https=10000 ${HOMEPAGE_PORT}
+ExecStop=/usr/bin/tailscale funnel --bg --https=443 --off ${ND_PORT}
+ExecStop=/usr/bin/tailscale funnel --bg --https=8443 --off ${WEBQUEUE_PORT}
+ExecStop=/usr/bin/tailscale funnel --bg --https=10000 --off ${HOMEPAGE_PORT}
 Restart=on-failure
 
 [Install]
@@ -109,10 +125,14 @@ echo -e "${GREEN}  Tailscale Funnel configurado correctamente${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
 echo ""
 if [[ -n "$PUBLIC_URL" ]]; then
+  HUB_BASE="${PUBLIC_URL%%:*}"
   echo -e "  URL pública de Navidrome:"
   echo -e "  ${CYAN}${PUBLIC_URL}${NC}"
   echo ""
-  echo "  Configura NaviBeat / Amperfy con esta URL."
+  echo -e "  Panel con acceso a todas las apps (añádelo a la pantalla de inicio):"
+  echo -e "  ${CYAN}${HUB_BASE}:10000${NC}"
+  echo ""
+  echo "  Configura NaviBeat / Amperfy con la URL de Navidrome."
   echo "  No hace falta tener Tailscale activo en el iPhone."
 else
   echo "  No se pudo detectar la URL automáticamente."

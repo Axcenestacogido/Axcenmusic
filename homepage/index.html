@@ -235,13 +235,14 @@
     // Navidrome: Funnel publico en puerto 443 (sin puerto en URL)
     // WebQueue: Funnel publico en puerto 8443
     // Resto: acceso directo HTTP via Tailscale VPN (no necesita tailscale serve)
+    var tailnetHost = location.hostname.indexOf(".ts.net") !== -1 ? location.hostname : "axcen.tail0f2a47.ts.net";
     var services = {
-      "navidrome": { local: "http://localhost:4533",  ext: "https://axcen.tail0f2a47.ts.net" },
-      "webqueue":  { local: "http://localhost:8888",  ext: "https://axcen.tail0f2a47.ts.net:8443" },
-      "slskd":     { local: "http://localhost:5030",  ext: "http://axcen.tail0f2a47.ts.net:5030" },
-      "lidarr":    { local: "http://localhost:8686",  ext: "http://axcen.tail0f2a47.ts.net:8686" },
-      "prowlarr":  { local: "http://localhost:9696",  ext: "http://axcen.tail0f2a47.ts.net:9696" },
-      "tags":      { local: "http://localhost:6677",  ext: "http://axcen.tail0f2a47.ts.net:6677" }
+      "navidrome": { local: "http://localhost:4533",  ext: "https://" + tailnetHost },
+      "webqueue":  { local: "http://localhost:8888",  ext: "https://" + tailnetHost + ":8443" },
+      "slskd":     { local: "http://localhost:5030",  ext: "http://" + tailnetHost + ":5030" },
+      "lidarr":    { local: "http://localhost:8686",  ext: "http://" + tailnetHost + ":8686" },
+      "prowlarr":  { local: "http://localhost:9696",  ext: "http://" + tailnetHost + ":9696" },
+      "tags":      { local: "http://localhost:6677",  ext: "http://" + tailnetHost + ":6677" }
     };
 
     Object.keys(services).forEach(function(key) {
