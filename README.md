@@ -65,7 +65,8 @@ axcenmusic/
 │   ├── 06-setup-extras.sh      # yt-dlp, ffmpeg, backup diario, notificaciones ntfy.sh
 │   ├── 07-setup-beets.sh       # Etiquetado automático (Beets) + análisis de BPM
 │   ├── 08-setup-webqueue.sh    # Cola de descargas web (subir música sin SSH)
-│   └── 09-setup-funnel.sh      # Opcional — expone el stack en una URL HTTPS pública
+│   ├── 09-setup-funnel.sh      # Opcional — expone el stack en una URL HTTPS pública
+│   └── 10-setup-media-stack.sh # Opcional — Soulseek, Lidarr, Prowlarr y editor de tags
 └── docs/
     ├── pasos-fisicos.md      # Qué hacer delante de la Pi (flash, SSH, etc.)
     ├── subir-musica-iphone.md# Cómo subir música desde iPhone por SFTP
@@ -109,7 +110,18 @@ configurarlo más tarde, puedes ejecutarlo en cualquier momento con:
 sudo bash scripts/09-setup-funnel.sh
 ```
 
-Duración total: **10–20 minutos**.
+También puedes activar **Soulseek (slskd), Lidarr, Prowlarr y un editor
+de tags en masa** — gestión avanzada de biblioteca, todo accesible solo
+dentro de tu red Tailscale. En una Raspberry Pi 3 (1 GB RAM) suman
+varios contenedores más sobre Navidrome, así que en Pi 3 vigila el
+consumo con `docker stats`; en Pi 4/5 no debería haber problema.
+Se configura durante el wizard o, más tarde, con:
+
+```bash
+sudo bash scripts/10-setup-media-stack.sh
+```
+
+Duración total: **10–20 minutos** (más si activas los extras anteriores).
 
 <details>
 <summary>Alternativa: clonar primero y configurar el <code>.env</code> a mano</summary>

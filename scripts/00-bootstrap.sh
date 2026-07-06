@@ -59,6 +59,14 @@ if [[ "${funnel_resp,,}" == "s" ]]; then
 fi
 
 echo ""
+warn "Soulseek + Lidarr + Prowlarr + editor de tags son opcionales."
+warn "En una Pi 3 (1 GB RAM) suman varios contenedores más — puede ir justo de memoria."
+read -r -p "¿Instalar Soulseek + Lidarr + Prowlarr + editor de tags? [s/N] " media_resp
+if [[ "${media_resp,,}" == "s" ]]; then
+  run_step 10 "Soulseek + Lidarr + Prowlarr + tags" "10-setup-media-stack.sh"
+fi
+
+echo ""
 echo "=================================================="
 echo -e "${GREEN}   Instalación completada correctamente${NC}"
 echo "=================================================="
@@ -69,5 +77,13 @@ echo "  2. Navidrome: abre http://pimusic:4533 desde Tailscale y crea tu cuenta 
 echo "  3. Configura Amperfy/NaviBeat con la IP Tailscale de la Pi y puerto 4533."
 echo "  4. Cola de descargas: http://pimusic:${WEBQUEUE_PORT:-8888}"
 echo "  5. Panel de inicio:   http://pimusic:${HOMEPAGE_PORT:-7575}"
-echo "  6. Consulta docs/checklist.md para la verificación completa."
+if [[ "${media_resp,,}" == "s" ]]; then
+  echo "  6. Editor de tags:    http://pimusic:${MUSIC_TAG_PORT:-6677}"
+  echo "  7. Lidarr:            http://pimusic:${LIDARR_PORT:-8686}"
+  echo "  8. Prowlarr:          http://pimusic:${PROWLARR_PORT:-9696}"
+  echo "  9. Soulseek:          http://pimusic:${SLSKD_PORT:-5030}"
+  echo "  10. Consulta docs/checklist.md para la verificación completa."
+else
+  echo "  6. Consulta docs/checklist.md para la verificación completa."
+fi
 echo ""
