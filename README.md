@@ -51,16 +51,21 @@ iPhone (FE File Explorer / Owlfiles)
 
 ```
 axcenmusic/
-├── .env.example              # Plantilla de configuración (copia a .env)
+├── install.sh                 # Instalador interactivo (recomendado) — clona, pregunta y ejecuta todo
+├── .env.example                # Plantilla de configuración (copia a .env)
 ├── .gitignore
-├── docker-compose.yml        # Stack Docker de Navidrome
+├── docker-compose.yml          # Stack Docker (Navidrome + panel de inicio)
 ├── scripts/
-│   ├── 00-bootstrap.sh       # Script maestro — ejecuta todo en orden
-│   ├── 01-system-setup.sh    # Actualiza el sistema, monta almacenamiento
-│   ├── 02-install-docker.sh  # Instala Docker y Docker Compose
-│   ├── 03-deploy-navidrome.sh# Despliega Navidrome + servicio systemd
+│   ├── 00-bootstrap.sh         # Alternativa sin wizard — usa el .env que ya hayas rellenado
+│   ├── 01-system-setup.sh      # Actualiza el sistema, monta almacenamiento
+│   ├── 02-install-docker.sh    # Instala Docker y Docker Compose
+│   ├── 03-deploy-navidrome.sh  # Despliega Navidrome + servicio systemd
 │   ├── 04-install-tailscale.sh # Instala y configura Tailscale
-│   └── 05-setup-sftp.sh      # Configura usuario SFTP para subida desde iPhone
+│   ├── 05-setup-sftp.sh        # Configura usuario SFTP para subida desde iPhone
+│   ├── 06-setup-extras.sh      # yt-dlp, ffmpeg, backup diario, notificaciones ntfy.sh
+│   ├── 07-setup-beets.sh       # Etiquetado automático (Beets) + análisis de BPM
+│   ├── 08-setup-webqueue.sh    # Cola de descargas web (subir música sin SSH)
+│   └── 09-setup-funnel.sh      # Opcional — expone el stack en una URL HTTPS pública
 └── docs/
     ├── pasos-fisicos.md      # Qué hacer delante de la Pi (flash, SSH, etc.)
     ├── subir-musica-iphone.md# Cómo subir música desde iPhone por SFTP
@@ -70,21 +75,6 @@ axcenmusic/
 ---
 
 ## Inicio rápido
-
-### Paso 0 — Preparar ahora (sin la Pi)
-
-```bash
-# 1. Clonar este repositorio
-git clone https://github.com/axcenestacogido/axcenmusic.git
-cd axcenmusic
-
-# 2. Crear el fichero de configuración
-cp .env.example .env
-
-# 3. Rellenar: TAILSCALE_AUTH_KEY, STORAGE_UUID, STORAGE_FSTYPE
-#    (STORAGE_UUID lo obtendrás con 'blkid' cuando tengas la Pi)
-nano .env
-```
 
 ### Paso 1 — Flash de la microSD
 
@@ -98,25 +88,50 @@ Usa Raspberry Pi Imager con **Raspberry Pi OS Lite (64-bit)** y activa SSH.
 ssh pi@pimusic.local
 ```
 
-### Paso 3 — Clonar el repositorio en la Pi
+### Paso 3 — Ejecutar el instalador
+
+La forma más rápida: un único comando que clona el repositorio y lanza
+un asistente interactivo (pregunta por Tailscale, almacenamiento,
+contraseña SFTP, puertos, etc. y genera el `.env` por ti).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Axcenestacogido/Axcenmusic/main/install.sh | sudo bash
+```
+
+Al final del asistente puedes elegir activar **Tailscale Funnel**, que
+publica Navidrome, la cola de descargas y el panel de inicio en una URL
+HTTPS pública (sin necesitar la app Tailscale en el iPhone). Requiere
+tener MagicDNS y "HTTPS Certificates" activados en tu cuenta Tailscale;
+el propio instalador te lo explica antes de activarlo. Si prefieres
+configurarlo más tarde, puedes ejecutarlo en cualquier momento con:
+
+```bash
+sudo bash scripts/09-setup-funnel.sh
+```
+
+Duración total: **10–20 minutos**.
+
+<details>
+<summary>Alternativa: clonar primero y configurar el <code>.env</code> a mano</summary>
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/axcenestacogido/axcenmusic.git ~/axcenmusic
 cd ~/axcenmusic
 cp .env.example .env
-nano .env   # rellena los valores
-```
-
-### Paso 4 — Ejecutar el instalador
-
-```bash
+nano .env                       # rellena TAILSCALE_AUTH_KEY, STORAGE_UUID, etc.
 sudo bash scripts/00-bootstrap.sh
 ```
 
-Duración: **10–20 minutos**.
+`00-bootstrap.sh` ejecuta el mismo stack completo (sistema, Docker,
+Navidrome, Tailscale, SFTP, extras, Beets, cola de descargas) pero sin
+el asistente interactivo — útil si prefieres revisar y editar el `.env`
+tú mismo antes de instalar, o para reinstalar con una configuración ya
+guardada.
 
-### Paso 5 — Verificar
+</details>
+
+### Paso 4 — Verificar
 
 Sigue el **[checklist de verificación](docs/checklist.md)**.
 

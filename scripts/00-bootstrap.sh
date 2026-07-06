@@ -43,11 +43,20 @@ run_step() {
   bash "$SCRIPTS_DIR/$script"
 }
 
-run_step 1 "Preparación del sistema"        "01-system-setup.sh"
-run_step 2 "Instalación de Docker"          "02-install-docker.sh"
-run_step 3 "Despliegue de Navidrome"        "03-deploy-navidrome.sh"
-run_step 4 "Configuración de Tailscale"     "04-install-tailscale.sh"
-run_step 5 "Configuración de SFTP"          "05-setup-sftp.sh"
+run_step 1 "Preparación del sistema"          "01-system-setup.sh"
+run_step 2 "Instalación de Docker"            "02-install-docker.sh"
+run_step 3 "Despliegue de Navidrome"          "03-deploy-navidrome.sh"
+run_step 4 "Configuración de Tailscale"       "04-install-tailscale.sh"
+run_step 5 "Configuración de SFTP"            "05-setup-sftp.sh"
+run_step 6 "Extras (yt-dlp, cron, ntfy.sh)"   "06-setup-extras.sh"
+run_step 7 "Beets + análisis BPM"             "07-setup-beets.sh"
+run_step 8 "Cola de descargas web"            "08-setup-webqueue.sh"
+
+echo ""
+read -r -p "¿Configurar también acceso público con Tailscale Funnel? [s/N] " funnel_resp
+if [[ "${funnel_resp,,}" == "s" ]]; then
+  run_step 9 "Acceso público (Tailscale Funnel)" "09-setup-funnel.sh"
+fi
 
 echo ""
 echo "=================================================="
@@ -58,5 +67,7 @@ info "Próximos pasos:"
 echo "  1. Tailscale: abre la app en el iPhone y verifica que 'pimusic' aparece."
 echo "  2. Navidrome: abre http://pimusic:4533 desde Tailscale y crea tu cuenta admin."
 echo "  3. Configura Amperfy/NaviBeat con la IP Tailscale de la Pi y puerto 4533."
-echo "  4. Consulta docs/checklist.md para la verificación completa."
+echo "  4. Cola de descargas: http://pimusic:${WEBQUEUE_PORT:-8888}"
+echo "  5. Panel de inicio:   http://pimusic:${HOMEPAGE_PORT:-7575}"
+echo "  6. Consulta docs/checklist.md para la verificación completa."
 echo ""
