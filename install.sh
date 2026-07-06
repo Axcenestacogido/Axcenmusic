@@ -257,6 +257,18 @@ echo "   (se explica paso a paso durante la configuración)."
 echo ""
 ENABLE_FUNNEL=$(ask "¿Configurar Tailscale Funnel ahora?" "n")
 
+# ── EXTRAS: Soulseek + Lidarr + Prowlarr + editor de tags ────────
+step "Extra  Soulseek, Lidarr, Prowlarr y editor de tags"
+echo "   Servicios opcionales de gestión avanzada de biblioteca:"
+echo "     - Soulseek (slskd): red P2P para buscar y descargar música"
+echo "     - Lidarr + Prowlarr: añade artistas y descarga álbumes automáticamente"
+echo "     - Editor de tags: edita artista/álbum/año/carátula en masa"
+echo ""
+warn "En una Raspberry Pi 3 (1 GB RAM) suman varios contenedores más sobre"
+warn "Navidrome — puede ir justo de memoria. En Pi 4/5 no debería haber problema."
+echo ""
+ENABLE_MEDIA_STACK=$(ask "¿Instalar Soulseek + Lidarr + Prowlarr + editor de tags?" "n")
+
 # ── Resumen antes de instalar ─────────────────────────────────────
 echo ""
 echo -e "${BOLD}   ┌─────────────────────────────────────────────────────┐"
@@ -275,6 +287,7 @@ printf  "   │  %-22s  %-28s│\n" "Notificaciones:"      "${NTFY_TOPIC:-desact
 printf  "   │  %-22s  %-28s│\n" "Puerto cola descargas:" "$WEBQUEUE_PORT"
 printf  "   │  %-22s  %-28s│\n" "Puerto panel inicio:" "$HOMEPAGE_PORT"
 printf  "   │  %-22s  %-28s│\n" "Acceso público:"      "$([[ "${ENABLE_FUNNEL,,}" == "s" ]] && echo "sí (Tailscale Funnel)" || echo "no")"
+printf  "   │  %-22s  %-28s│\n" "Soulseek/Lidarr/etc:" "$([[ "${ENABLE_MEDIA_STACK,,}" == "s" ]] && echo "sí" || echo "no")"
 echo -e "   └─────────────────────────────────────────────────────┘${NC}"
 echo ""
 
@@ -341,7 +354,8 @@ run_step() {
 }
 
 TOTAL_STEPS=8
-[[ "${ENABLE_FUNNEL,,}" == "s" ]] && TOTAL_STEPS=9
+[[ "${ENABLE_FUNNEL,,}" == "s" ]] && TOTAL_STEPS=$((TOTAL_STEPS+1))
+[[ "${ENABLE_MEDIA_STACK,,}" == "s" ]] && TOTAL_STEPS=$((TOTAL_STEPS+1))
 
 run_step "Paso 1/${TOTAL_STEPS} — Sistema base"           "01-system-setup.sh"
 run_step "Paso 2/${TOTAL_STEPS} — Docker"                "02-install-docker.sh"
@@ -352,8 +366,14 @@ run_step "Paso 6/${TOTAL_STEPS} — Extras (yt-dlp, cron)" "06-setup-extras.sh"
 run_step "Paso 7/${TOTAL_STEPS} — Beets + análisis BPM"  "07-setup-beets.sh"
 run_step "Paso 8/${TOTAL_STEPS} — Cola de descargas web" "08-setup-webqueue.sh"
 
+STEP=8
 if [[ "${ENABLE_FUNNEL,,}" == "s" ]]; then
-  run_step "Paso 9/${TOTAL_STEPS} — Acceso público (Tailscale Funnel)" "09-setup-funnel.sh"
+  STEP=$((STEP+1))
+  run_step "Paso ${STEP}/${TOTAL_STEPS} — Acceso público (Tailscale Funnel)" "09-setup-funnel.sh"
+fi
+if [[ "${ENABLE_MEDIA_STACK,,}" == "s" ]]; then
+  STEP=$((STEP+1))
+  run_step "Paso ${STEP}/${TOTAL_STEPS} — Soulseek + Lidarr + Prowlarr + tags" "10-setup-media-stack.sh"
 fi
 
 # ══════════════════════════════════════════════════════════════════

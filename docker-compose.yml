@@ -37,3 +37,75 @@ services:
       - "${HOMEPAGE_PORT:-7575}:80"
     volumes:
       - "./homepage:/usr/share/nginx/html:ro"
+
+  music-tag-web:
+    image: ghcr.io/xhongc/music-tag-web:latest
+    container_name: axcen-music-tag
+    restart: unless-stopped
+    ports:
+      - "${MUSIC_TAG_PORT:-6677}:6677"
+    volumes:
+      - "${MUSIC_DIR:-/mnt/music}:/app/media"
+      - music-tag-data:/app/data
+    profiles:
+      - tags
+
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: axcen-lidarr
+    restart: unless-stopped
+    ports:
+      - "${LIDARR_PORT:-8686}:8686"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "${TZ:-Europe/Madrid}"
+    volumes:
+      - lidarr-config:/config
+      - "${MUSIC_DIR:-/mnt/music}:/music"
+      - "${DOWNLOADS_DIR:-/mnt/music/downloads}:/downloads"
+    profiles:
+      - lidarr
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: axcen-prowlarr
+    restart: unless-stopped
+    ports:
+      - "${PROWLARR_PORT:-9696}:9696"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "${TZ:-Europe/Madrid}"
+    volumes:
+      - prowlarr-config:/config
+    profiles:
+      - lidarr
+
+  slskd:
+    image: slskd/slskd:latest
+    container_name: axcen-slskd
+    restart: unless-stopped
+    ports:
+      - "${SLSKD_PORT:-5030}:5030"
+      - "2234:2234"
+    environment:
+      SLSKD_REMOTE_CONFIGURATION: "true"
+      SLSKD_DOWNLOADS_DIR: /music/soulseek
+      SLSKD_SHARED_DIR: /music
+      SLSKD_APP_DIR: /app
+    volumes:
+      - slskd-data:/app
+      - "${MUSIC_DIR:-/mnt/music}:/music"
+    profiles:
+      - soulseek
+
+volumes:
+  music-tag-data:
+    driver: local
+  lidarr-config:
+    driver: local
+  prowlarr-config:
+    driver: local
+  slskd-data:
+    driver: local
