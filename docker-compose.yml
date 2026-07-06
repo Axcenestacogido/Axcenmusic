@@ -39,11 +39,11 @@ services:
       - "./homepage:/usr/share/nginx/html:ro"
 
   music-tag-web:
-    image: ghcr.io/xhongc/music-tag-web:latest
+    image: xhongc/music_tag_web:latest
     container_name: axcen-music-tag
     restart: unless-stopped
     ports:
-      - "${MUSIC_TAG_PORT:-6677}:6677"
+      - "${MUSIC_TAG_PORT:-6677}:8002"
     volumes:
       - "${MUSIC_DIR:-/mnt/music}:/app/media"
       - music-tag-data:/app/data
