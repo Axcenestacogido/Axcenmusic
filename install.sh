@@ -234,6 +234,29 @@ echo "   Déjalo vacío para omitir las notificaciones (se pueden activar despu�
 echo ""
 NTFY_TOPIC=$(ask "Topic de ntfy.sh" "")
 
+# ── EXTRAS: puertos de servicios web ─────────────────────────────
+step "Extra  Puertos de servicios web"
+echo "   Cola de descargas: interfaz para bajar música desde el iPhone."
+echo "   Panel de inicio:   página con accesos a todas las apps del stack."
+echo ""
+WEBQUEUE_PORT=$(ask "Puerto de la cola de descargas" "8888")
+HOMEPAGE_PORT=$(ask "Puerto del panel de inicio" "7575")
+
+# ── EXTRAS: Tailscale Funnel (exposición pública opcional) ───────
+step "Extra  Acceso público (Tailscale Funnel)"
+echo "   Por defecto, todo es accesible solo dentro de tu red Tailscale"
+echo "   (necesitas la app Tailscale activa en el iPhone)."
+echo ""
+echo "   Tailscale Funnel expone Navidrome, la cola de descargas y el"
+echo "   panel de inicio en una URL HTTPS pública, sin necesitar la app"
+echo "   Tailscale en el iPhone ni abrir puertos en el router."
+echo ""
+echo "   Requiere tener MagicDNS y 'HTTPS Certificates' activados, y el"
+echo "   atributo 'funnel' habilitado en las ACL de tu cuenta Tailscale"
+echo "   (se explica paso a paso durante la configuración)."
+echo ""
+ENABLE_FUNNEL=$(ask "¿Configurar Tailscale Funnel ahora?" "n")
+
 # ── Resumen antes de instalar ─────────────────────────────────────
 echo ""
 echo -e "${BOLD}   ┌─────────────────────────────────────────────────────┐"
@@ -249,6 +272,9 @@ printf  "   │  %-22s  %-28s│\n" "Escaneo música:"      "$ND_SCAN_SCHEDULE"
 printf  "   │  %-22s  %-28s│\n" "Puerto SSH:"          "$SSH_PORT"
 printf  "   │  %-22s  %-28s│\n" "Usuario Pi:"          "$PI_USER"
 printf  "   │  %-22s  %-28s│\n" "Notificaciones:"      "${NTFY_TOPIC:-desactivadas}"
+printf  "   │  %-22s  %-28s│\n" "Puerto cola descargas:" "$WEBQUEUE_PORT"
+printf  "   │  %-22s  %-28s│\n" "Puerto panel inicio:" "$HOMEPAGE_PORT"
+printf  "   │  %-22s  %-28s│\n" "Acceso público:"      "$([[ "${ENABLE_FUNNEL,,}" == "s" ]] && echo "sí (Tailscale Funnel)" || echo "no")"
 echo -e "   └─────────────────────────────────────────────────────┘${NC}"
 echo ""
 
@@ -289,6 +315,12 @@ PI_USER="$PI_USER"
 
 # --- NOTIFICACIONES ---
 NTFY_TOPIC="$NTFY_TOPIC"
+
+# --- COLA DE DESCARGAS WEB ---
+WEBQUEUE_PORT="$WEBQUEUE_PORT"
+
+# --- PANEL DE INICIO (HUB) ---
+HOMEPAGE_PORT="$HOMEPAGE_PORT"
 EOF
 
 info ".env generado correctamente."
@@ -308,14 +340,21 @@ run_step() {
   bash "$SCRIPTS_DIR/$script"
 }
 
-run_step "Paso 1/8 — Sistema base"           "01-system-setup.sh"
-run_step "Paso 2/8 — Docker"                "02-install-docker.sh"
-run_step "Paso 3/8 — Navidrome"             "03-deploy-navidrome.sh"
-run_step "Paso 4/8 — Tailscale"             "04-install-tailscale.sh"
-run_step "Paso 5/8 — SFTP"                  "05-setup-sftp.sh"
-run_step "Paso 6/8 — Extras (yt-dlp, cron)" "06-setup-extras.sh"
-run_step "Paso 7/8 — Beets + análisis BPM"  "07-setup-beets.sh"
-run_step "Paso 8/8 — Cola de descargas web" "08-setup-webqueue.sh"
+TOTAL_STEPS=8
+[[ "${ENABLE_FUNNEL,,}" == "s" ]] && TOTAL_STEPS=9
+
+run_step "Paso 1/${TOTAL_STEPS} — Sistema base"           "01-system-setup.sh"
+run_step "Paso 2/${TOTAL_STEPS} — Docker"                "02-install-docker.sh"
+run_step "Paso 3/${TOTAL_STEPS} — Navidrome"             "03-deploy-navidrome.sh"
+run_step "Paso 4/${TOTAL_STEPS} — Tailscale"             "04-install-tailscale.sh"
+run_step "Paso 5/${TOTAL_STEPS} — SFTP"                  "05-setup-sftp.sh"
+run_step "Paso 6/${TOTAL_STEPS} — Extras (yt-dlp, cron)" "06-setup-extras.sh"
+run_step "Paso 7/${TOTAL_STEPS} — Beets + análisis BPM"  "07-setup-beets.sh"
+run_step "Paso 8/${TOTAL_STEPS} — Cola de descargas web" "08-setup-webqueue.sh"
+
+if [[ "${ENABLE_FUNNEL,,}" == "s" ]]; then
+  run_step "Paso 9/${TOTAL_STEPS} — Acceso público (Tailscale Funnel)" "09-setup-funnel.sh"
+fi
 
 # ══════════════════════════════════════════════════════════════════
 #  RESUMEN FINAL
@@ -359,8 +398,15 @@ cat <<SUMMARY
 
    ┌─── Cola de descargas web ──────────────────────────────────┐
    │
-   │   http://${TAILSCALE_HOSTNAME}:${WEBQUEUE_PORT:-8888}
+   │   http://${TAILSCALE_HOSTNAME}:${WEBQUEUE_PORT}
    │   → Pega una URL de YouTube/Bandcamp y pulsa Añadir
+   │
+   └────────────────────────────────────────────────────────────┘
+
+   ┌─── Panel de inicio (acceso a todas las apps) ──────────────┐
+   │
+   │   http://${TAILSCALE_HOSTNAME}:${HOMEPAGE_PORT}
+   │   → Añádelo a la pantalla de inicio del iPhone
    │
    └────────────────────────────────────────────────────────────┘
 
